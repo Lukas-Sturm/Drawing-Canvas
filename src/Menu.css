@@ -1,0 +1,87 @@
+.colors-1-hex { color: #435953; }
+.colors-2-hex { color: #242625; }
+.colors-3-hex { color: #7E8C7B; }
+.colors-4-hex { color: #BFB6A4; }
+.colors-5-hex { color: #0D0D0D; }
+
+:host {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    width: 250px;
+
+    font: 16px Arial;
+    color: white;
+
+    border-radius: 8px;
+    border: 1px solid #6f747c;
+    background-color: #2b2d30;
+    padding: 5px;
+}
+
+.menuContainer {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    width: 250px;
+
+    border-radius: 8px;
+    border: 1px solid #6f747c;
+    background-color: #2b2d30;
+    padding: 5px;
+}
+
+:host button {
+    text-align: left;
+    color: white;
+}
+
+button.menuItem:hover {
+    background-color: #2e436e;
+}
+
+:host hr {
+    width: 98%;
+    margin: 6px 0 6px 0;
+    color: #6f747c;
+    background-color: #6f747c;
+
+    border: none;
+    height: 1px;
+}
+
+.menuText {
+    user-select: none;
+}
+
+.menuItem {
+    background-color: transparent;
+    height: 1.5em;
+    font-size: 1em;
+    font-weight: lighter;
+    border: none;
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+.radioMenuItem {
+    display: block;
+    padding: 1px 10px;
+    width: 100%;
+}
+
+.radioMenuItem.selected {
+    background-color: #375259;
+}
+
+.radioMenuItem.selected:before {
+    content: '✔ ';
+}
+
+
+.subMenu {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
