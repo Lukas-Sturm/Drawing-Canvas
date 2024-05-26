@@ -17,17 +17,26 @@ Alternativ kann `/dist` statisch geserved werden. Der Ordner enthält das produc
 Beispielsweise mithilfe von __http-server__
 - `npx http-server ./dist`
 
-# Aufbau
-Die Hauptaufgaben werden an die vier Komponenten verteilt:
-- DrawingCanvas
-  - User Facing, Input, Context Menu
-  - Shape Rendering
-- ShapeManager (verschiedene Implementierungen für verschiedene Speicherarten)
-  - Shape storage
-  - Z-Index Management
-- SelectionManager
-  - Shape selection storage
-  - Shape manipulation
+# Blatt 3
+## Event Sourcing
+- Shapes sind nun einfache reine Objekte
+  - Ermöglicht einfaches Serialisieren und Deserialisieren
+- Jede Komponente speichert selbst die Shapes
+  - `ShapeStore` erleichtert das Speichern und Verwalten der Shapes
+  - Canvas besitzt spezielle Shapes die Rendering Informationen enthalten
+  - SelectionTool könnte auch eigene Shapes bekommen (aus Zeitgründen verwendet is jedoch die CanvasShapes)
+- Alle Events und Handler sind strict typed
+  - Das hat einiges an Zeit gekostet schöne Typen zu bauen, aber wenn es dann funktioniert macht es wirklich Spaß :)
+- Um das Zeichnen zu vereinfachen (keine Extra Redraw Events) verwendet die Anwendung RequestAnimationFrame, wenn sich etwas an den Shapes ändert, dadurch werden je nach Refreshrate des Browsers mehrere Events gebündelt. Hier ist mir die simplizität wichtiger als die Performance.
+- Die Events besitzen eine Origin Feld
+  - Mit diesem kann die Komponente entscheiden, ob sie auf ein Event Reagieren muss.
+  - So ist es möglich die Events verschiedener Clients zu synchronisieren
+  - Oder beispielsweise mehrere `SelectionTools` zu verwenden, die sich automatisch synchronisieren
+- Änderungen an den Shapes und auch Bewegung wird durch das `ShapeChanged` Event abgebildet
+  - Das ermöglicht es einfacher Snapshots zu erstellen, es muss nur das letzte ShapeChanged Event gespeichert werden
+  - Zudem gibt es für alle Zustandsänderungen nur ein Event
+  - Nachteil: Eine Komponente, die ein Shape ändern möchte, muss immer das komplette Shape speichern
+    - Dadurch muss die Komponente auch unnütze Informationen speichern
 
 # Blatt 2
 ## Meine Lösung für Z - Index
@@ -52,6 +61,7 @@ Verwendung eines Baums, erlaubt schnelles Einfügen und dadurch schnelles Änder
 
 **Vorteil:** Zu Knoten kann ein rendering Cache gespeichert werden. Idealerweise wird ein selbst balancierender Baum der mehrere Kinder pro Knoten erlaubt verwendet.
 **Problem:** Aufwendige und komplexe Implementierung.
+
 
 
 ### Quellen

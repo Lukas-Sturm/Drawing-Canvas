@@ -1,4 +1,4 @@
-import menuStyles from './Menu.css?inline'
+import menuStyles from './styles/Menu.css?inline'
 
 export interface MenuItem {
     render(menu: Menu): HTMLElement

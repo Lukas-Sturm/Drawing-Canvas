@@ -1,7 +1,10 @@
-import baseDrawingStyles from './DrawingCanvas.css?inline'
+import baseDrawingStyles from './styles/DrawingCanvas.css?inline'
 import {Menu, MenuItem, SeparatorMenuItem} from './Menu.mjs'
-import {ContextMenuItemFactory, Shape} from "./types.mjs"
+import {ContextMenuItemFactory, CanvasShape} from "./types.mjs"
 import {ToolArea} from "./ToolArea.mjs"
+import {SHAPE_EVENT_BUS} from "./EventManager.mjs"
+import {convertShape} from "./CanvasShapes.mjs"
+import {ArrayShapeStore} from "./ShapeStore.mjs"
 
 type DrawingCanvasOptions = {
     width: number,
@@ -14,6 +17,10 @@ export class DrawingCanvas extends HTMLElement {
         height: 500
     }
 
+    protected shapeStore = new ArrayShapeStore<CanvasShape>()
+    protected contextBuilders: Array<{priority: number, builder: () => Array<MenuItem>}> = []
+    protected requestedRedraw = false
+
     protected canvas: HTMLCanvasElement
     protected selectionCanvas: HTMLCanvasElement
     protected canvasRenderCtx: CanvasRenderingContext2D
@@ -21,8 +28,6 @@ export class DrawingCanvas extends HTMLElement {
     protected infoParagraph: HTMLParagraphElement
     protected componentDOM: ShadowRoot
     protected toolArea: ToolArea
-
-    protected contextBuilders: Array<{priority: number, builder: () => Array<MenuItem>}> = []
 
     constructor() {
         super()
@@ -66,27 +71,34 @@ export class DrawingCanvas extends HTMLElement {
         this.attachListeners()
         this.componentDOM.appendChild(canvasWrapper)
         this.componentDOM.appendChild(this.infoParagraph)
-    }
 
-    draw(shapes: Shape[]) {
-        this.canvasRenderCtx.clearRect(0, 0, this.config.width, this.config.height)
-
-        // draw shapes
-        this.canvasRenderCtx.fillStyle = 'black'
-        for (const shape of shapes) {
-            shape.draw(this.canvasRenderCtx)
-        }
-    }
-
-    drawSelection(shapes: Shape[]) {
-        this.selectionCanvasRenderCtx.clearRect(0, 0, this.config.width, this.config.height)
-
-        shapes.forEach((shape) => shape.drawSelection(this.selectionCanvasRenderCtx, {color: '#43ff6480'}))
+        this.attachShapeEventListeners()
     }
 
     attachContextMenuItemFactory(builder: ContextMenuItemFactory, priority: number = 100) {
         this.contextBuilders.push({priority, builder})
         this.contextBuilders.sort((a, b) => b.priority - a.priority)
+    }
+
+    redraw() {
+        this.draw()
+        this.drawSelection()
+    }
+
+    protected draw() {
+        this.canvasRenderCtx.clearRect(0, 0, this.config.width, this.config.height)
+
+        // draw shapes
+        this.canvasRenderCtx.fillStyle = 'black'
+        for (const shape of this.shapeStore.getShapes()) {
+            shape.draw(this.canvasRenderCtx)
+        }
+    }
+
+    protected drawSelection() {
+        this.selectionCanvasRenderCtx.clearRect(0, 0, this.config.width, this.config.height)
+        // {}
+        this.shapeStore.getShapes().forEach((shape) => shape.drawSelection(this.selectionCanvasRenderCtx))
     }
 
     protected buildContextMenu(): Menu | null {
@@ -103,6 +115,70 @@ export class DrawingCanvas extends HTMLElement {
 
         if (contextMenu.getItemCount() === 0) return null
         return contextMenu
+    }
+
+    /**
+     * Request a redraw of the canvas on the next animation frame
+     * Can be called multiple times, but will only trigger one redraw per frame
+     * @protected
+     */
+    protected requestRedraw(){
+        if (!this.requestedRedraw) {
+            this.requestedRedraw = true
+            requestAnimationFrame(() => {
+                this.redraw()
+                this.requestedRedraw = false
+            })
+        }
+    }
+
+    protected attachShapeEventListeners() {
+        SHAPE_EVENT_BUS.addEventListener('ShapeAdded', (event) => {
+            this.shapeStore.addShape(convertShape(event.shape))
+            this.requestRedraw()
+        })
+
+        SHAPE_EVENT_BUS.addEventListener('ShapeRemoved', (event) => {
+            this.shapeStore.removeShape(event.shapeId)
+            this.requestRedraw()
+        })
+
+        SHAPE_EVENT_BUS.addEventListener('ShapeZChanged', (event) => {
+            if (event.z === -Infinity) {
+                this.shapeStore.sendShapeToBack(event.shapeId)
+            } else if (event.z === Infinity) {
+                this.shapeStore.sendShapeToFront(event.shapeId)
+            } else {
+                this.shapeStore.changeShapeZ(event.shapeId, event.z)
+            }
+            this.requestRedraw()
+        })
+
+        SHAPE_EVENT_BUS.addEventListener('ShapeSelected', (event) => {
+            const shape = this.shapeStore.getShape(event.shapeId)
+            if (shape) {
+                shape.selectionOptions = event.options
+                this.requestRedraw()
+            } else {
+                console.warn("Shape not found for selection event", event)
+            }
+        })
+
+        SHAPE_EVENT_BUS.addEventListener('ShapeDeselected', (event) => {
+            const shape = this.shapeStore.getShape(event.shapeId)
+            if (shape) {
+                shape.selectionOptions = undefined
+                this.requestRedraw()
+            } else {
+                console.warn("Shape not found for selection event", event)
+            }
+        })
+
+        SHAPE_EVENT_BUS.addEventListener('ShapeUpdated', (event) => {
+            // replaces old shape
+            this.shapeStore.addShape(convertShape(event.shape))
+            this.requestRedraw()
+        })
     }
 
     protected attachListeners() {

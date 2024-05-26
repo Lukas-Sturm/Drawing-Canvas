@@ -1,20 +1,20 @@
-import baseAreaStyles from './ToolArea.css?inline'
+import baseAreaStyles from './styles/ToolArea.css?inline'
 import {ContextMenuItemFactory, ShapeFactory} from "./types.mjs"
-import {ButtonMenuItem, Menu} from "./Menu.mjs";
+import {ButtonMenuItem, Menu} from "./Menu.mjs"
 
 export class ToolArea extends HTMLElement {
+    readonly shadowDOM: ShadowRoot
     protected selectedTool?: ShapeFactory = undefined
-    protected componentDOM: ShadowRoot
     protected tools: ShapeFactory[] = []
 
     constructor() {
         super()
-        this.componentDOM = this.attachShadow({ mode: 'open' })
-        this.componentDOM.adoptedStyleSheets.push(this.buildStyles())
+        this.shadowDOM = this.attachShadow({ mode: 'open' })
+        this.shadowDOM.adoptedStyleSheets.push(this.buildStyles())
     }
 
     setTools(tools: ShapeFactory[]) {
-        this.componentDOM.innerHTML = "" // clear the content, allows to set the shapes multiple times
+        this.shadowDOM.innerHTML = "" // clear the content, allows to set the shapes multiple times
         this.tools = tools
 
         const buttonElements: HTMLElement[] = []
@@ -22,7 +22,7 @@ export class ToolArea extends HTMLElement {
             const domSelElement = document.createElement("li")
             domSelElement.innerText = tool.label
             domSelElement.id = `tool-${tool.label}-button`
-            this.componentDOM.appendChild(domSelElement)
+            this.shadowDOM.appendChild(domSelElement)
             buttonElements.push(domSelElement)
 
             domSelElement.addEventListener("click", () => {
@@ -46,7 +46,7 @@ export class ToolArea extends HTMLElement {
             toolMenu.addItems(...this.tools.map((tool) => new ButtonMenuItem(tool.label, (menu) => {
                 // somewhat hacky way to trigger the click event
                 // just wanted to add a context menu builder
-                this.componentDOM.querySelector(`#tool-${tool.label}-button`)?.dispatchEvent(new MouseEvent("click"))
+                this.shadowDOM.querySelector(`#tool-${tool.label}-button`)?.dispatchEvent(new MouseEvent("click"))
                 menu.hide()
             })))
             return [toolMenu]

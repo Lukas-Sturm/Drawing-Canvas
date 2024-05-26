@@ -1,4 +1,17 @@
-import {MenuItem} from "./Menu.mjs";
+import {MenuItem} from "./Menu.mjs"
+
+export interface Point2D {
+    readonly x: number
+    readonly y: number
+}
+
+export class Point2D {
+    private constructor() {}
+
+    static distance(p1: Point2D, p2: Point2D): number {
+        return Math.sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y))
+    }
+}
 
 export type SelectionOptions = {
     color: string
@@ -6,38 +19,30 @@ export type SelectionOptions = {
 
 export type ContextMenuItemFactory = () => Array<MenuItem>
 
-export type ShapeId = number
+export type ShapeId = string
 
-export interface Shape {
+export interface CanvasShape {
     readonly id: ShapeId
 
-    setBorderColor(color: string): this
-    setFillColor(color: string): this
-    getBorderColor(): string
-    getFillColor(): string
+    selectionOptions: SelectionOptions | undefined
 
-    checkSelection(x: number, y: number): boolean
     draw(ctx: CanvasRenderingContext2D): void
-    drawSelection(ctx: CanvasRenderingContext2D, options: SelectionOptions): void
+    drawSelection(ctx: CanvasRenderingContext2D): void
+    checkSelection(x: number, y: number): boolean // TODO: move to SelectableShape at some point to fully embrace event sourcing
 }
 
-export interface ShapeManager {
-    getShapes(): Shape[] // in z order
-    addShape(shape: Shape, redraw: boolean): this
-    removeShape(shape: Shape, redraw: boolean): this
-    removeShapeWithId(id: number, redraw: boolean): this
-    sendShapeToBack(shape: Shape, redraw: boolean): this
-    sendShapeToFront(shape: Shape, redraw: boolean): this
-    changeShapeZ(shape: Shape, layers: number, redraw: boolean): this
-    redraw(): this
+export interface SelectableShape {
+    readonly id: ShapeId
+
+    checkSelection(x: number, y: number): boolean
 }
 
 export interface SelectionManager {
-    getSelectedShapes(): Shape[]
-    selectShape(shape: Shape, redraw: boolean): this
-    unselectShape(shape: Shape, redraw: boolean): this
+    getSelectedShapeIds(): string[]
+    selectShape(shapeId: string, redraw: boolean): this
+    unselectShape(shapeId: string, redraw: boolean): this
     resetSelection(redraw: boolean): this
-    redraw(): this
+    // redraw(): this
 }
 
 export interface Tool {
@@ -48,3 +53,15 @@ export interface Tool {
 }
 
 export type ShapeFactory = Tool
+
+export type ID<T extends { id: any }> = T['id']
+
+export interface ShapeStore<T extends { id: any }> {
+    addShape(shape: T): this
+    removeShape(id: ID<T>): this
+    getShapes(): T[]
+    getShape(shapeId: ID<T>): T | undefined
+    sendShapeToFront(shapeId: ID<T>): this
+    sendShapeToBack(shapeId: ID<T>): this
+    changeShapeZ(shapeId: ID<T>, layers: number): this
+}
