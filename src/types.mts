@@ -1,4 +1,5 @@
-import {MenuItem} from "./Menu.mjs"
+import {MenuItem} from "./Components/Menu.mjs"
+import {Shape, ShapeType} from "./Shapes.mjs";
 
 export interface Point2D {
     readonly x: number
@@ -11,6 +12,18 @@ export class Point2D {
     static distance(p1: Point2D, p2: Point2D): number {
         return Math.sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y))
     }
+
+    static add(p1: Point2D, p2: Point2D): Point2D {
+        return { x: p1.x + p2.x, y: p1.y + p2.y }
+    }
+
+    static subtract(p1: Point2D, p2: Point2D): Point2D {
+        return {x: p1.x - p2.x, y: p1.y - p2.y}
+    }
+
+    static magnitude(p: Point2D): number {
+        return Math.sqrt(p.x * p.x + p.y * p.y)
+    }
 }
 
 export type SelectionOptions = {
@@ -22,9 +35,12 @@ export type ContextMenuItemFactory = () => Array<MenuItem>
 export type ShapeId = string
 
 export interface CanvasShape {
+    readonly type: ShapeType
     readonly id: ShapeId
 
     selectionOptions: SelectionOptions | undefined
+
+    toShape(): Shape
 
     draw(ctx: CanvasRenderingContext2D): void
     drawSelection(ctx: CanvasRenderingContext2D): void
@@ -32,17 +48,10 @@ export interface CanvasShape {
 }
 
 export interface SelectableShape {
+    readonly type: ShapeType
     readonly id: ShapeId
 
     checkSelection(x: number, y: number): boolean
-}
-
-export interface SelectionManager {
-    getSelectedShapeIds(): string[]
-    selectShape(shapeId: string, redraw: boolean): this
-    unselectShape(shapeId: string, redraw: boolean): this
-    resetSelection(redraw: boolean): this
-    // redraw(): this
 }
 
 export interface Tool {

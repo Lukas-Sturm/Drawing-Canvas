@@ -21,22 +21,34 @@ Beispielsweise mithilfe von __http-server__
 ## Event Sourcing
 - Shapes sind nun einfache reine Objekte
   - Ermöglicht einfaches Serialisieren und Deserialisieren
+
+
 - Jede Komponente speichert selbst die Shapes
   - `ShapeStore` erleichtert das Speichern und Verwalten der Shapes
   - Canvas besitzt spezielle Shapes die Rendering Informationen enthalten
   - SelectionTool könnte auch eigene Shapes bekommen (aus Zeitgründen verwendet is jedoch die CanvasShapes)
+
+
 - Alle Events und Handler sind strict typed
   - Das hat einiges an Zeit gekostet schöne Typen zu bauen, aber wenn es dann funktioniert macht es wirklich Spaß :)
-- Um das Zeichnen zu vereinfachen (keine Extra Redraw Events) verwendet die Anwendung RequestAnimationFrame, wenn sich etwas an den Shapes ändert, dadurch werden je nach Refreshrate des Browsers mehrere Events gebündelt. Hier ist mir die simplizität wichtiger als die Performance.
-- Die Events besitzen eine Origin Feld
+  - Manche Typen funktionieren noch nicht so wie ich mir das vorstelle, aber das ist ein Lernprozess
+  
+- Aus Gründen der Separation of Concerns kann der Canvas nun selbst entscheiden, wann er ein redraw durchführt 
+  - Dafür wird der RequestAnimationFrame Mechanismus verwendet, wenn sich etwas an den Shapes ändert, dadurch werden je nach Refreshrate des Browsers mehrere Events gebündelt. Hier ist mir die simplizität wichtiger als die Performance.
+
+
+- Die Events besitzen ein `origin` Feld
   - Mit diesem kann die Komponente entscheiden, ob sie auf ein Event Reagieren muss.
   - So ist es möglich die Events verschiedener Clients zu synchronisieren
   - Oder beispielsweise mehrere `SelectionTools` zu verwenden, die sich automatisch synchronisieren
+
+
 - Änderungen an den Shapes und auch Bewegung wird durch das `ShapeChanged` Event abgebildet
   - Das ermöglicht es einfacher Snapshots zu erstellen, es muss nur das letzte ShapeChanged Event gespeichert werden
+    - Für Shanpshots muss noch eine Lösung für das Z-Indexing gefunden werden.
+    - Gelöschte Elemente aus dem Snapshot zu entfernen würde Z-Change Events durcheinander bringen
   - Zudem gibt es für alle Zustandsänderungen nur ein Event
-  - Nachteil: Eine Komponente, die ein Shape ändern möchte, muss immer das komplette Shape speichern
-    - Dadurch muss die Komponente auch unnütze Informationen speichern
+
 
 # Blatt 2
 ## Meine Lösung für Z - Index

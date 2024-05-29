@@ -1,10 +1,11 @@
-import baseDrawingStyles from './styles/DrawingCanvas.css?inline'
+import baseDrawingStyles from '../styles/DrawingCanvas.css?inline'
 import {Menu, MenuItem, SeparatorMenuItem} from './Menu.mjs'
-import {ContextMenuItemFactory, CanvasShape} from "./types.mjs"
+import {ContextMenuItemFactory, CanvasShape} from "../types.mjs"
 import {ToolArea} from "./ToolArea.mjs"
-import {SHAPE_EVENT_BUS} from "./EventManager.mjs"
-import {convertShape} from "./CanvasShapes.mjs"
-import {ArrayShapeStore} from "./ShapeStore.mjs"
+import {convertShape} from "../CanvasShapes.mjs"
+import {ArrayShapeStore} from "../ShapeStore.mjs"
+
+import {SHAPE_EVENT_BUS} from "../EventBus.mjs";
 
 type DrawingCanvasOptions = {
     width: number,
@@ -175,8 +176,14 @@ export class DrawingCanvas extends HTMLElement {
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeUpdated', (event) => {
+            const canvasShape = this.shapeStore.getShape(event.shape.id)
+            if (!canvasShape) { return }
             // replaces old shape
-            this.shapeStore.addShape(convertShape(event.shape))
+            const shape = canvasShape.toShape()
+            Object.assign(shape, event.shape)
+            const newShape = convertShape(shape)
+            newShape.selectionOptions = this.shapeStore.getShape(event.shape.id)?.selectionOptions
+            this.shapeStore.addShape(newShape)
             this.requestRedraw()
         })
     }

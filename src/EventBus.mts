@@ -1,59 +1,22 @@
-import {Shape} from "./Shapes.mjs"
-import {SelectionOptions} from "./types.mjs"
+import {ShapeEventDefinitions} from "./ShapeEvents.mjs";
 
-export type EventType = 'ShapeAdded'| 'ShapeRemoved' | 'ShapeSelected' | 'ShapeDeselected' | 'ShapeUpdated' | 'ShapeZChanged'
+/**
+ * Simple Event Bus
+ * Exports a global event bus for the application
+ * All components and systems should use this event bus to communicate
+ */
 
-export interface BaseEvent<T extends EventType> {
-    type: T
-    origin: string // will be used in the future to resolve conflicts (hopefully)
-    timestamp: number
-}
-
-export interface ShapeAddedEvent extends BaseEvent<'ShapeAdded'> {
-    shape: Shape
-}
-
-export interface ShapeRemovedEvent extends BaseEvent<'ShapeRemoved'> {
-    shapeId: string
-}
-
-export interface ShapeSelectedEvent extends BaseEvent<'ShapeSelected'> {
-    shapeId: string
-    options: SelectionOptions
-}
-
-export interface ShapeDeselectedEvent extends BaseEvent<'ShapeDeselected'> {
-    shapeId: string
-}
-
-export interface ShapeZChanged extends BaseEvent<'ShapeZChanged'> {
-    shapeId: string,
-    z: number // -INFINITY for send to back, INFINITY for send to front
-}
-
-export interface ShapeUpdatedEvent extends BaseEvent<'ShapeUpdated'> {
-    shape: Shape
-}
-
-type ShapeEventDefinitions = {
-    ShapeAdded: ShapeAddedEvent,
-    ShapeRemoved: ShapeRemovedEvent,
-    ShapeSelected: ShapeSelectedEvent,
-    ShapeDeselected: ShapeDeselectedEvent,
-    ShapeUpdated: ShapeUpdatedEvent,
-    ShapeZChanged: ShapeZChanged
-}
-
-export interface IEventBus<T> {
+export interface EventBus<T> {
     addEventListener<K extends keyof T>(type: K, listener: (event: T[K]) => void): () => void
     dispatchEvent<K extends keyof T>(type: K, event: T[K]): void
+    reset(): void
 }
 
 // once types and generics work as intended they are super cool :D
 type Listener<T, K extends keyof T> = (event: T[K]) => void
 type ListenerMap<T> = Partial<{ [ K in keyof T ]: Array<Listener<T, K>> }>
 
-class EventBus<T> implements IEventBus<T> {
+class ClientOnlyEventBus<T> implements EventBus<T> {
     protected listeners: ListenerMap<T> = { }
 
     addEventListener<K extends keyof T>(
@@ -87,7 +50,15 @@ class EventBus<T> implements IEventBus<T> {
         const eventListeners = this.listeners[type] || []
         eventListeners.forEach(listener => listener(event))
     }
+
+    reset() {
+        this.listeners = {}
+    }
 }
+
+// Global event bus for the application
+export const SHAPE_EVENT_BUS = new ClientOnlyEventBus<ShapeEventDefinitions>()
+
 
 // class ShapeEventStore {
 //     protected events: BaseEvent<any>[] = []
@@ -122,6 +93,3 @@ class EventBus<T> implements IEventBus<T> {
 //         SHAPE_EVENT_BUS.dispatchEvent(event.type, event)
 //     }
 // }
-
-// Global event bus for the application
-export const SHAPE_EVENT_BUS = new EventBus<ShapeEventDefinitions>()

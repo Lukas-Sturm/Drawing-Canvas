@@ -1,20 +1,25 @@
-import './styles/Style.css'
-import './DrawingCanvas.mts'
-import './ToolArea.mts'
-
-import {
-    CircleFactory,
-    LineFactory,
-    RectangleFactory,
-    TriangleFactory
-} from "./Shapes.mjs"
-import {DrawingCanvas} from "./DrawingCanvas.mjs"
-import {ToolArea} from "./ToolArea.mjs"
+import {SHAPE_EVENT_BUS} from "./EventBus.mjs";
+import {ShapeEvent} from "./ShapeEvents.mjs";
+import {CircleFactory, LineFactory, RectangleFactory, TriangleFactory} from "./Shapes.mjs"
+import {DrawingCanvas} from "./Components/DrawingCanvas.mjs"
+import {ToolArea} from "./Components/ToolArea.mjs"
 import {ShapeFactory, Tool} from "./types.mjs"
 import {SelectionTool} from "./SelectionTool.mjs"
-import {ButtonMenuItem} from "./Menu.mjs"
+import {ButtonMenuItem} from "./Components/Menu.mjs"
 import {SelectionMenuBuilder} from "./SelectionMenuBuilder.mjs"
-import {BaseEvent, SHAPE_EVENT_BUS} from "./EventManager.mjs"
+import {deserializeEvent, serializeEvent} from "./Utils/EventSerialize.mjs";
+
+import './styles/Style.css'
+import './Components/DrawingCanvas.mts'
+import './Components/ToolArea.mts'
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    setupDebugEventLog()
+    wireCanvas()
+})
+
+
 
 function wireCanvas() {
     const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
@@ -51,26 +56,8 @@ function wireCanvas() {
     ], 1000)
 }
 
+// as this is supposed to be a debug tool that will not be permanent, I will not create a separate file and component for it
 function setupDebugEventLog() {
-    function recreateCanvas() {
-        // find canvas and parent, then remove old canvas
-        const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
-        if (!canvas) throw new Error('Canvas not found')
-        const canvasParent = canvas.parentElement
-        if (!canvasParent) throw new Error('Canvas Parent not found')
-        canvas.remove()
-
-        // reapply attributes, uses innerHTML because document.createElement does not allow to set attributes
-        // DrawingCanvas uses attributes in constructor, now I know why one should not use attributes in constructor but use them in the mount :)
-        // as this event log is just a temporary debug tool, I will not change the DrawingCanvas implementation
-        let canvasHtmlTag = '<hs-drawing-canvas '
-        for (let attribute of canvas.attributes) {
-            canvasHtmlTag += `${attribute.name}="${attribute.value}" `
-        }
-        canvasParent.innerHTML += `${canvasHtmlTag}></hs-drawing-canvas>`
-        wireCanvas()
-    }
-
     const replayButton = document.querySelector('#logReplayButton') as HTMLButtonElement
     if (!replayButton) throw new Error('Replay Event Button not found')
 
@@ -85,19 +72,45 @@ function setupDebugEventLog() {
 
     let replayingEvents = false
 
-    const eventHandler = (event: BaseEvent<any>) => {
+    const eventHandler = (event: ShapeEvent) => {
         if (replayingEvents) return
-        eventLogTextArea.value += `${JSON.stringify(event)}\n`
+        eventLogTextArea.value += `${serializeEvent(event)}\n`
     }
 
-    SHAPE_EVENT_BUS.listenToAllEvents({
-        ShapeAdded: eventHandler,
-        ShapeDeselected: eventHandler,
-        ShapeSelected: eventHandler,
-        ShapeRemoved: eventHandler,
-        ShapeZChanged: eventHandler,
-        ShapeUpdated: eventHandler
-    })
+    const attachEventLogListeners = () => {
+        SHAPE_EVENT_BUS.listenToAllEvents({
+            ShapeAdded: eventHandler,
+            ShapeDeselected: eventHandler,
+            ShapeSelected: eventHandler,
+            ShapeRemoved: eventHandler,
+            ShapeZChanged: eventHandler,
+            ShapeUpdated: eventHandler
+        })
+    }
+
+    function recreateCanvas() {
+        // find canvas and parent, then remove old canvas
+        const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
+        if (!canvas) throw new Error('Canvas not found')
+        const canvasParent = canvas.parentElement
+        if (!canvasParent) throw new Error('Canvas Parent not found')
+        canvas.remove()
+
+        SHAPE_EVENT_BUS.reset() // clear all previous listeners
+        attachEventLogListeners() // reattach event log listeners
+
+        // reapply attributes, uses innerHTML because document.createElement does not allow to set attributes
+        // DrawingCanvas uses attributes in constructor, now I know why one should not use attributes in constructor but use them in the mount :)
+        // as this event log is just a temporary debug tool, I will not change the DrawingCanvas implementation
+        let canvasHtmlTag = '<hs-drawing-canvas '
+        for (let attribute of canvas.attributes) {
+            canvasHtmlTag += `${attribute.name}="${attribute.value}" `
+        }
+        canvasParent.innerHTML += `${canvasHtmlTag}></hs-drawing-canvas>`
+        wireCanvas()
+    }
+
+    attachEventLogListeners()
 
     replayButton.addEventListener('click', () => {
         const rawEventLog = eventLogTextArea.value
@@ -109,7 +122,7 @@ function setupDebugEventLog() {
         rawEvents.forEach((rawEvent) => {
             if (rawEvent.length === 0) return
 
-            const event = JSON.parse(rawEvent)
+            const event = deserializeEvent(rawEvent)
             SHAPE_EVENT_BUS.dispatchEvent(event.type, event) // ts is not complaining so this is fine :)
         })
         replayingEvents = false
@@ -122,12 +135,12 @@ function setupDebugEventLog() {
 
         const rawEventLog = eventLogTextArea.value
         const rawEvents = rawEventLog.split('\n').reverse()
-        const resultEvents: BaseEvent<any>[] = []
+        const resultEvents: ShapeEvent[] = []
         const removedShapes = new Set<string>()
 
         for (const rawEvent of rawEvents) {
             if (rawEvent.length === 0) continue
-            const event = JSON.parse(rawEvent)
+            const event = JSON.parse(rawEvent) as ShapeEvent
 
             if (event.type === 'ShapeRemoved') {
                 removedShapes.add(event.shapeId)
@@ -159,10 +172,3 @@ function setupDebugEventLog() {
         replayButton.click() // recreates canvas
     })
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-    // wait for dom to be loaded
-    // then wire up the dependencies
-    setupDebugEventLog()
-    wireCanvas()
-})

@@ -1,7 +1,10 @@
 import {Point2D, ShapeFactory} from "./types.mjs"
-import {EventHelper} from "./ShapeEventHelper.mjs"
 
-export type ShapeType = 'Line' | 'Circle' | 'Rectangle' | 'Triangle'
+
+import {EventHelper} from "./ShapeEvents.mjs";
+
+export type ShapeType = 'Line' | 'Circle' | 'Rectangle' | 'Triangle' | 'Wurst'
+export type Shape = Line | Circle | Rectangle | Triangle
 
 export interface ShapeIdentifier {
     id: string
@@ -17,8 +20,6 @@ const DefaultShape: BaseShape = {
     borderColor: 'black',
     fillColor: 'transparent',
 }
-
-export type Shape = Line | Circle | Rectangle | Triangle
 
 export interface Line extends BaseShape, ShapeIdentifier {
     type: 'Line'

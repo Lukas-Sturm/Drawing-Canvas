@@ -1,5 +1,5 @@
-import baseAreaStyles from './styles/ToolArea.css?inline'
-import {ContextMenuItemFactory, ShapeFactory} from "./types.mjs"
+import baseAreaStyles from '../styles/ToolArea.css?inline'
+import {ContextMenuItemFactory, ShapeFactory} from "../types.mjs"
 import {ButtonMenuItem, Menu} from "./Menu.mjs"
 
 export class ToolArea extends HTMLElement {

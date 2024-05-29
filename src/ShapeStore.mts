@@ -1,5 +1,9 @@
 import {ID, ShapeStore} from "./types.mjs"
 
+/**
+ * Store Shapes
+ * allows to change the Z index of shapes
+ */
 export class ArrayShapeStore<T extends { id: any }> implements ShapeStore<T> {
     protected shapes: T[] = []
     protected shapeLookup: Map<ID<T>, { index: number }> = new Map()

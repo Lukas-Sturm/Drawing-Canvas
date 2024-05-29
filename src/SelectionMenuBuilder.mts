@@ -1,15 +1,23 @@
 import {ContextMenuItemFactory} from "./types.mjs"
-import {ButtonMenuItem, Menu, MenuItem, RadioOptionMenuItem, SeparatorMenuItem} from "./Menu.mjs"
-import {SHAPE_EVENT_BUS} from "./EventManager.mjs"
-import {EventHelper} from "./ShapeEventHelper.mjs"
-import {Shape} from "./Shapes.mjs"
+import {ButtonMenuItem, Menu, MenuItem, RadioOptionMenuItem, SeparatorMenuItem} from "./Components/Menu.mjs"
+
+import {EventHelper} from "./ShapeEvents.mjs";
+import {SHAPE_EVENT_BUS} from "./EventBus.mjs";
+
+// Simpler Shape type
+type SelectionMenuShape = {
+    id: string,
+    borderColor: string,
+    fillColor: string
+}
 
 /**
  * SelectionMenuBuilder creates a Context Menu Factory to manipulate the selected shapes
  */
 export class SelectionMenuBuilder {
-    protected allShapes: Map<string, Shape> = new Map()
+    protected allShapes: Map<string, SelectionMenuShape> = new Map()
     protected selectedShapes: Set<string> = new Set()
+    protected selectAllSettings = { color: 'red' }
 
     protected currentEventOrigin = EventHelper.generateOrigin()
 
@@ -23,7 +31,7 @@ export class SelectionMenuBuilder {
     createContextMenuFactory(): ContextMenuItemFactory {
         const selectAllButton = new ButtonMenuItem('Alle Shapes auswählen', (menu) => {
             // event listener will mark them as selected automatically
-            this.allShapes.forEach((shape) => EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, { color: 'red' }) )
+            this.allShapes.forEach((shape) => EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, this.selectAllSettings) )
             menu.hide()
         })
 
@@ -111,7 +119,6 @@ export class SelectionMenuBuilder {
             `Rahmenfarbe`,
             borderColorOptions,
             (value, _) => {
-                // this.selectedShapes.forEach(shape => shape.setBorderColor(value))
                 this.selectedShapes.forEach(shapeId => {
                     const shape = this.allShapes.get(shapeId)
                     if (!shape) return
@@ -141,16 +148,24 @@ export class SelectionMenuBuilder {
         )
         fillColorMenu.addItem(fillColorRadioMenu)
 
-        if (this.selectedShapes.size === 1) {
-            // preselect the colors if only one shape is selected
-            const firstShapeIter = this.selectedShapes.values().next()
-            if (!firstShapeIter.done) {
-                const shape = this.allShapes.get(firstShapeIter.value)
-                if (shape) {
-                    borderColorRadioMenu.setSelectedKey(shape.borderColor)
-                    fillColorRadioMenu.setSelectedKey(shape.fillColor)
-                }
-            }
+        // Check if all colors are the same
+        // set them as selected if they are
+        const shapes = Array.from(this.selectedShapes.values())
+                .map((shapeId) => this.allShapes.get(shapeId))
+                .filter((shape): shape is SelectionMenuShape => !!shape)
+
+        const commonBorderColor =  shapes.reduce((acc: string | undefined, shape) => {
+            return acc !== shape.borderColor ? undefined : acc
+        }, shapes[0].borderColor)
+        const commonFillColor = shapes.reduce((acc: string | undefined, shape) => {
+            return acc !== shape.fillColor ? undefined : acc
+        }, shapes[0].fillColor)
+
+        if (commonBorderColor) {
+            borderColorRadioMenu.setSelectedKey(commonBorderColor)
+        }
+        if (commonFillColor) {
+            fillColorRadioMenu.setSelectedKey(commonFillColor)
         }
 
         return [borderColorMenu, fillColorMenu]
@@ -171,11 +186,19 @@ export class SelectionMenuBuilder {
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeAdded', (event) => {
-            this.allShapes.set(event.shape.id, event.shape)
+            // technically we could just pass the whole shape, but that would defeat the purpose of the reduced shape type
+            this.allShapes.set(event.shape.id, {
+                id: event.shape.id,
+                borderColor: event.shape.borderColor,
+                fillColor: event.shape.fillColor
+            })
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeUpdated', (event) => {
-            this.allShapes.set(event.shape.id, event.shape)
+            const shape = this.allShapes.get(event.shape.id)
+            if (!shape) return
+            if (event.shape.borderColor) shape.borderColor = event.shape.borderColor
+            if (event.shape.fillColor) shape.fillColor = event.shape.fillColor
         })
     }
 }
