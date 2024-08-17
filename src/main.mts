@@ -1,174 +1,126 @@
-import {SHAPE_EVENT_BUS} from "./EventBus.mjs";
-import {ShapeEvent} from "./ShapeEvents.mjs";
-import {CircleFactory, LineFactory, RectangleFactory, TriangleFactory} from "./Shapes.mjs"
-import {DrawingCanvas} from "./Components/DrawingCanvas.mjs"
-import {ToolArea} from "./Components/ToolArea.mjs"
-import {ShapeFactory, Tool} from "./types.mjs"
-import {SelectionTool} from "./SelectionTool.mjs"
-import {ButtonMenuItem} from "./Components/Menu.mjs"
-import {SelectionMenuBuilder} from "./SelectionMenuBuilder.mjs"
-import {deserializeEvent, serializeEvent} from "./Utils/EventSerialize.mjs";
 
-import './styles/Style.css'
-import './Components/DrawingCanvas.mts'
-import './Components/ToolArea.mts'
+const DEV = true;
+const ADD_DEV = DEV ? '?dev' : '';
 
+// Note
+// This is a simple SPA implementation
+// It uses fetch to load content from the server
+// It allows executing scripts in the loaded content
+// BUT the script can't use DOMContentLoaded event because it's already fired
+// Possibly the loader could wait for all images scripts etc to be fully loaded. Then trigger a custom event, scripts need to be aware of this event
+//   -->  This is now implemented
+// WebComponents also don't realy work because they need to be defined before the content is loaded, but because the Script is executed after the content is loaded, the WebComponents are not defined yet
+//   -->  Scripts that use WebComponents need to listen to the AJAXContentLoaded event and then create the WebComponents and not rely on the provided DOM
 
-document.addEventListener('DOMContentLoaded', () => {
-    setupDebugEventLog()
-    wireCanvas()
+// Loaded CSS gets removed if the Node is removed
+
+document.addEventListener('DOMContentLoaded', async function() {
+
+    const contentElement = document.getElementById('content');
+    if (!contentElement) {
+        console.error('No content element found');
+        return;
+    }
+
+    // default load home
+    const response = await fetch('/home' + ADD_DEV);
+    response.text().then(replaceContent(contentElement));
+
+    // registers AJAX handlers for forms
+    document.addEventListener('submit', async (event) => {
+        const sourceElement = event.target
+        if (!eventAjaxRequestEnabled(sourceElement)) {
+            return
+        }
+    
+        if (!(sourceElement instanceof HTMLFormElement)) {
+            return
+        }
+    
+        event.preventDefault()
+    
+        const action = (sourceElement.getAttribute('action') || '') + ADD_DEV
+        const method = sourceElement.getAttribute('method') || 'GET'
+        
+        // convert form data to URLSearchParams to send it as application/x-www-form-urlencoded
+        // FormData will be send as multipart/form-data
+        // actix expects application/x-www-form-urlencoded
+        const formData = new URLSearchParams()
+        new FormData(sourceElement).forEach((value, key) => {
+            formData.append(key, value.toString())
+        })
+        
+        console.group('AJAX From Submit:')
+        console.log(action, method, formData)
+        fetch(action, {
+            method: method,
+            body: formData
+        }).then((response) => {
+            console.log(response)
+            console.groupEnd()
+            response.text().then(replaceContent(contentElement))
+        })
+    
+    })
+    
+    // registers AJAX handlers for anchors
+    document.addEventListener('click', async (event) => {
+        const sourceElement = event.target
+        if (!eventAjaxRequestEnabled(sourceElement)) {
+            return
+        }
+    
+        if (sourceElement instanceof HTMLAnchorElement) {
+            event.preventDefault()
+         
+            const action = (sourceElement.getAttribute('href') || '')  + ADD_DEV
+            console.group('AJAX Page Load')
+            console.log(action)
+            const response = await fetch(action)
+            console.log(response)
+            console.groupEnd()
+            response.text().then(replaceContent(contentElement))
+        }
+    })
 })
 
-
-
-function wireCanvas() {
-    const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
-    if (!canvas) throw new Error('Canvas not found')
-
-    const selectionMenuBuilder = new SelectionMenuBuilder()
-    const selectionTool = new SelectionTool()
-
-    const tools: Tool|ShapeFactory[] = [
-        // Tools
-        selectionTool,
-        // ShapeFactories
-        new LineFactory(),
-        new CircleFactory(),
-        new RectangleFactory(),
-        new TriangleFactory(),
-    ]
-
-    const toolbar = document.querySelector('hs-tool-area') as ToolArea
-    if (!toolbar) throw new Error('Toolbar not found')
-    // move attachment to here, not sure how I would do it when creating the HTML-Element,
-    // as those are not allowed to have constructor parameters.
-    toolbar.setTools(tools)
-
-    // attach the context menu factories
-    canvas.attachContextMenuItemFactory(selectionMenuBuilder.createContextMenuFactory())
-    canvas.attachContextMenuItemFactory(toolbar.createContextMenuFactory(), 1) // low prio show tools last
-    // QOL makes testing 500ms faster :D
-    canvas.attachContextMenuItemFactory(() => [
-        new ButtonMenuItem(selectionTool.label, (menu) => {
-            toolbar.shadowDOM.querySelector(`#tool-${selectionTool.label}-button`)?.dispatchEvent(new MouseEvent("click"))
-            menu.hide()
-        })
-    ], 1000)
+function eventAjaxRequestEnabled(element: EventTarget | null): element is HTMLElement {
+    return element instanceof HTMLElement && element.getAttribute('data-spa-request') !== null
 }
 
-// as this is supposed to be a debug tool that will not be permanent, I will not create a separate file and component for it
-function setupDebugEventLog() {
-    const replayButton = document.querySelector('#logReplayButton') as HTMLButtonElement
-    if (!replayButton) throw new Error('Replay Event Button not found')
+// replaces content and properly executes scripts
+function replaceContent(contentContainer: HTMLElement) {
+    return (text: string) => {
 
-    const clearButton = document.querySelector('#logClearButton') as HTMLButtonElement
-    if (!clearButton) throw new Error('Clear Button not found')
+        contentContainer.innerHTML = text // actual HTML5 Spec :)
+    
+        requestAnimationFrame(() => {
 
-    const optimizeLogButton = document.querySelector('#logOptimizeButton') as HTMLButtonElement
-    if (!optimizeLogButton) throw new Error('Optimize Event Log Button not found')
+            const allScriptsLoaded: Promise<void>[] = []
 
-    const eventLogTextArea = document.querySelector('#logTextArea') as HTMLTextAreaElement
-    if (!eventLogTextArea) throw new Error('Replay Event TextArea not found')
+            // get all script tags and replace them with new script tags
+            // because spec says that script tags should not be executed when inserted via innerHTML
+            contentContainer.querySelectorAll('script').forEach((script) => {
+                const newScript = document.createElement('script')
+                
+                allScriptsLoaded.push(new Promise((resolve) => newScript.addEventListener('load', () => resolve())))
+            
+                // copy all attributes
+                for (let i = 0; i < script.attributes.length; i++) {
+                    const attribute = script.attributes[i]
+                    newScript.setAttribute(attribute.name, attribute.value)
+                }
 
-    let replayingEvents = false
+                // copy content
+                newScript.text = script.text
 
-    const eventHandler = (event: ShapeEvent) => {
-        if (replayingEvents) return
-        eventLogTextArea.value += `${serializeEvent(event)}\n`
-    }
+                script.replaceWith(newScript)
+            })
 
-    const attachEventLogListeners = () => {
-        SHAPE_EVENT_BUS.listenToAllEvents({
-            ShapeAdded: eventHandler,
-            ShapeDeselected: eventHandler,
-            ShapeSelected: eventHandler,
-            ShapeRemoved: eventHandler,
-            ShapeZChanged: eventHandler,
-            ShapeUpdated: eventHandler
+            // notify all scripts that they are loaded
+            Promise.all(allScriptsLoaded).then(() => {
+                document.dispatchEvent(new Event('AJAXContentLoaded'))
+            })
         })
     }
-
-    function recreateCanvas() {
-        // find canvas and parent, then remove old canvas
-        const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
-        if (!canvas) throw new Error('Canvas not found')
-        const canvasParent = canvas.parentElement
-        if (!canvasParent) throw new Error('Canvas Parent not found')
-        canvas.remove()
-
-        SHAPE_EVENT_BUS.reset() // clear all previous listeners
-        attachEventLogListeners() // reattach event log listeners
-
-        // reapply attributes, uses innerHTML because document.createElement does not allow to set attributes
-        // DrawingCanvas uses attributes in constructor, now I know why one should not use attributes in constructor but use them in the mount :)
-        // as this event log is just a temporary debug tool, I will not change the DrawingCanvas implementation
-        let canvasHtmlTag = '<hs-drawing-canvas '
-        for (let attribute of canvas.attributes) {
-            canvasHtmlTag += `${attribute.name}="${attribute.value}" `
-        }
-        canvasParent.innerHTML += `${canvasHtmlTag}></hs-drawing-canvas>`
-        wireCanvas()
-    }
-
-    attachEventLogListeners()
-
-    replayButton.addEventListener('click', () => {
-        const rawEventLog = eventLogTextArea.value
-        const rawEvents = rawEventLog.split('\n')
-
-        recreateCanvas()
-
-        replayingEvents = true
-        rawEvents.forEach((rawEvent) => {
-            if (rawEvent.length === 0) return
-
-            const event = deserializeEvent(rawEvent)
-            SHAPE_EVENT_BUS.dispatchEvent(event.type, event) // ts is not complaining so this is fine :)
-        })
-        replayingEvents = false
-    })
-
-    optimizeLogButton.addEventListener('click', () => {
-        // reverse events
-        // for every delete event
-        // do not save any events for that shape
-
-        const rawEventLog = eventLogTextArea.value
-        const rawEvents = rawEventLog.split('\n').reverse()
-        const resultEvents: ShapeEvent[] = []
-        const removedShapes = new Set<string>()
-
-        for (const rawEvent of rawEvents) {
-            if (rawEvent.length === 0) continue
-            const event = JSON.parse(rawEvent) as ShapeEvent
-
-            if (event.type === 'ShapeRemoved') {
-                removedShapes.add(event.shapeId)
-                continue
-            }
-
-            switch (event.type) {
-                // not sure hot to get ts involved here
-                // Generic narrowing using control flow is currently not implemented, but I am not 100% sure if this is needed here
-                case 'ShapeZChanged':
-                case 'ShapeDeselected':
-                case 'ShapeSelected':
-                    if (removedShapes.has(event.shapeId)) continue
-                    break
-                case 'ShapeAdded':
-                case 'ShapeUpdated':
-                    if (removedShapes.has(event.shape.id)) continue
-            }
-
-            resultEvents.push(event)
-        }
-
-        eventLogTextArea.value = resultEvents.reverse().map((event) => JSON.stringify(event)).join('\n')
-        eventLogTextArea.value += '\n'
-    })
-
-    clearButton.addEventListener('click', () => {
-        eventLogTextArea.value = ''
-        replayButton.click() // recreates canvas
-    })
 }

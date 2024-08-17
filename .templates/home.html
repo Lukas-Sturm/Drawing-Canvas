@@ -1,0 +1,13 @@
+<h1>Canvas List</h1>
+
+Hallo, {{name}} :-)
+
+<ul>
+
+    {{#each canvases}}
+    <li>
+        <a data-spa-request href="/canvas/{{this.id}}">{{this.name}}</a>
+    </li>
+    {{/each}}
+
+</ul>

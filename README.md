@@ -1,12 +1,9 @@
 # Software Systeme
 
 ## Allgemein
-Ein wahrscheinlich to be Zeichenprogramm in TypeScript.  
-Als Dev Server wird Vite verwendet.  
-> Vite ist ein ESM Dev Server und bundelt den Quelltext nicht, sondern stellt die nativen ESM Module dem Browser zur Verfügung. Der Plan ist im späteren Verlauf Hot Module Replacement zu testen und für die Entwicklung zu implementieren.   
-
-Des Weiteren versuche ich die Aufgaben mit Web Components umzusetzen.  
-Das ist mein erstes Projekt mit Vite und Web Components und generell ohne ein Framework.
+Multiuser Zeichenprogramm basierend auf Eventsourcing.  
+Plain Typescript/JS für Frontend, Actix Web für Backend.  
+Actix basiert auf dem Actor Model, dies wird auch für einige Komponenten verwendet.
 
 ## Starten
 Entweder per Vite um auch Source Maps zu generieren
@@ -16,6 +13,28 @@ Entweder per Vite um auch Source Maps zu generieren
 Alternativ kann `/dist` statisch geserved werden. Der Ordner enthält das production Bundle von Vite und kann ohne installation verwendet werden. Enthält aber keine Source Maps.  
 Beispielsweise mithilfe von __http-server__
 - `npx http-server ./dist`
+
+
+# Blatt 4
+## Benutzerverwaltung
+- Passwort verwendet Argon2, mit passend sicheren Parametern
+  - benötigt kein extra Salting, da Argon2 das bereits macht
+  - Es wurde kein zusätzlicher Pepper verwendet
+- Benutzerverwaltung wird auch durch Eventsourcing abgebildet
+- Cookie wird mit SameSite=Lax gesetzt und httponly
+  - SameSite=Lax schützt vor CSRF bei POST Requests von anderen Seiten
+  - Alle Endpunkte werden mit POST Requests aufgerufen
+  - Es wird kein extra CSRF Token implementiert
+    - https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#token-based-mitigation
+  - XSS ist kein Problem, da nur sehr wenig userconent angezeigt wird (ggf. Canvasname und Username) und das escaped wird
+- JWT
+  - https://curity.io/resources/learn/jwt-best-practices
+  - http://cryto.net/~joepie91/blog/2016/06/19/stop-using-jwt-for-sessions-part-2-why-your-solution-doesnt-work/
+  - ist eigentlich nicht für Session Storage gedacht
+    - nicht einfach ein JWT Token zu entziehen, bzw. verliert das JWT Format ein wenig den Sinn, wenn man troztdem für jede Anfrage in der db testet ob das Token Valid ist.
+    - JWT ist besser für single shot authentifizierung und authorisierung
+  - Problem, rechteupdates werden nicht in JWT wiedergespiegelt, wenn diese nicht erneuert wird.
+    - Lösung: TBD
 
 # Blatt 3
 ## Event Sourcing
