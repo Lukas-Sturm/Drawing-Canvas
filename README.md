@@ -9,11 +9,33 @@ Actix basiert auf dem Actor Model, dies wird auch für einige Komponenten verwen
 Entweder per Vite um auch Source Maps zu generieren
 - `npm i`
 - `npm run dev`
+In einem zweiten Terminal im `/webserver` Ordner
+- `cargo run --features dev`
 
-Alternativ kann `/dist` statisch geserved werden. Der Ordner enthält das production Bundle von Vite und kann ohne installation verwendet werden. Enthält aber keine Source Maps.  
-Beispielsweise mithilfe von __http-server__
-- `npx http-server ./dist`
+---
 
+Alternativ kann einfach der Webserver mit "compiliertem" Javascript verwendet werden. `/dist` enthält das production Bundle von Vite und kann ohne Installation verwendet werden.  
+Im `/webserver` Ordner
+- `cargo run` 
+
+# Blatt 6
+## SPA
+- Der Webserver checkt Requests die nicht an /assets/ gehen, ob diese einen speziellen Header haben
+  - ist dies nicht der Fall wird der Request an das root Verzeichnis / intern redirected, der client lädt dann selbst die resourcen nach.
+    - alternativ könnte der webserver hier auch mit einer hydrierten gerenderten Seite bereits antworten
+  - ist der Header gesetzt, wird eine Partielle gerenderte Seite zurückgegeben
+  - Der Nachteil an der aktuellen Implementierung ist das URL Query handling. Da keine Querys in der Anwendung verwendet werden, wurde hier kein robustes System entwickelt. (Redirects beachten keine Query Parameter)
+- Die Funktion orientiert sich an Bibliothek HTMX und dem Konzept der Hypermedia Driven Applications  
+  - https://htmx.org/essays/hypermedia-driven-applications/
+- Der Websocket Ansatz wurde nicht gewählt, da die SPA bereits für Blatt 4 entwickelt wurde und ein umbau mehr Zeit gekostet hätte :) (zumal Websocket Handling in Actix etwas komplexer ist als in anderen Sprachen/Frameworks)
+## Canvas Websocket
+- REWRITE: Events werden nicht validiert, es gibt wenig error handlig
+- REWRITE: Da ins SPA der Header verwendet wrid, die browser websocket api jedoch nicht erlaubt den initialen http request, vor dem upgrade zu steuern, kann kein header gesetzt werden.
+  - aus diesem grund gibt es eine Ausnahme regel wie für assets aber mit einem genauen regex für canvas websockets
+## Event Store
+- REWRITE: Eventes werden persistiert
+  - snapshots
+  - versioning
 
 # Blatt 4
 ## Benutzerverwaltung

@@ -15,10 +15,11 @@ export default {
     },
     server: {
         proxy: {
-            '/user/login': 'http://localhost:8080',
-            '/user/register': 'http://localhost:8080',
+            '/canvas': 'http://localhost:8080',
+            '/login': 'http://localhost:8080',
+            '/register': 'http://localhost:8080',
             '/home': 'http://localhost:8080',
-            // '/': 'http://localhost:8080',
+            '^/$': 'http://localhost:8080',
         }
     }
 } satisfies UserConfig

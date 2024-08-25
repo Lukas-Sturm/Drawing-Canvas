@@ -1,7 +1,3 @@
-
-const DEV = true;
-const ADD_DEV = DEV ? '?dev' : '';
-
 // Note
 // This is a simple SPA implementation
 // It uses fetch to load content from the server
@@ -14,17 +10,36 @@ const ADD_DEV = DEV ? '?dev' : '';
 
 // Loaded CSS gets removed if the Node is removed
 
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', setupSPA)
 
+async function setupSPA() {
     const contentElement = document.getElementById('content');
     if (!contentElement) {
         console.error('No content element found');
         return;
     }
 
-    // default load home
-    const response = await fetch('/home' + ADD_DEV);
-    response.text().then(replaceContent(contentElement));
+    let initialPath = window.location.pathname
+    // internal redirect to home if path is /
+    if (initialPath === '/') {
+        initialPath = '/home'
+    }
+
+    // initial load
+    const response = await fetch(initialPath, { cache: "no-cache", headers: { 'X-SPA-Request': 'true' } });
+
+    if (response.status === 200) {
+        response.text().then(replaceContent(contentElement, response));
+    } else {
+        console.error('Failed to load content');
+    }
+
+    registerSPAOverides(contentElement);
+}
+
+function registerSPAOverides(contentElement: HTMLElement) {
+
+    console.log('Registering SPA Overrides')
 
     // registers AJAX handlers for forms
     document.addEventListener('submit', async (event) => {
@@ -39,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
         event.preventDefault()
     
-        const action = (sourceElement.getAttribute('action') || '') + ADD_DEV
+        const action = sourceElement.getAttribute('action') || ''
         const method = sourceElement.getAttribute('method') || 'GET'
         
         // convert form data to URLSearchParams to send it as application/x-www-form-urlencoded
@@ -53,12 +68,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.group('AJAX From Submit:')
         console.log(action, method, formData)
         fetch(action, {
+            cache: 'no-cache',
+            headers: {
+                'X-SPA-Request': 'true'
+            },
             method: method,
             body: formData
         }).then((response) => {
             console.log(response)
             console.groupEnd()
-            response.text().then(replaceContent(contentElement))
+            response.text().then(replaceContent(contentElement, response))
         })
     
     })
@@ -72,24 +91,30 @@ document.addEventListener('DOMContentLoaded', async function() {
     
         if (sourceElement instanceof HTMLAnchorElement) {
             event.preventDefault()
-         
-            const action = (sourceElement.getAttribute('href') || '')  + ADD_DEV
+            
+            const action = sourceElement.getAttribute('href') || ''
             console.group('AJAX Page Load')
             console.log(action)
-            const response = await fetch(action)
+            const response = await fetch(action, { cache: 'no-cache', headers: { 'X-SPA-Request': 'true' } })
             console.log(response)
             console.groupEnd()
-            response.text().then(replaceContent(contentElement))
+            response.text().then(replaceContent(contentElement, response))
         }
     })
-})
+}
 
 function eventAjaxRequestEnabled(element: EventTarget | null): element is HTMLElement {
     return element instanceof HTMLElement && element.getAttribute('data-spa-request') !== null
 }
 
+function updateHistoryState(url: string) {
+    window.history.pushState({}, '', url);
+}
+
 // replaces content and properly executes scripts
-function replaceContent(contentContainer: HTMLElement) {
+function replaceContent(contentContainer: HTMLElement, response: Response) {
+    updateHistoryState(response.url);
+    
     return (text: string) => {
 
         contentContainer.innerHTML = text // actual HTML5 Spec :)

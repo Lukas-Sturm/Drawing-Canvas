@@ -1,14 +1,14 @@
-use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
 use actix::prelude::*;
+use actix::Actor;
 use actix::{Handler, Message};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use actix::Actor;
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
 
 pub struct EventLogPersistenceActorJson {
     // this could use tokio::fs::File, but synchronous file access is easier :)
-    file: std::fs::File
+    file: std::fs::File,
 }
 
 impl Actor for EventLogPersistenceActorJson {
@@ -16,7 +16,7 @@ impl Actor for EventLogPersistenceActorJson {
 }
 
 pub struct EventLogPersistenceJson {
-    file: std::fs::File
+    file: std::fs::File,
 }
 
 impl EventLogPersistenceJson {
@@ -29,30 +29,28 @@ impl EventLogPersistenceJson {
 
         // consider locking file
         // https://docs.rs/file-guard/latest/file_guard/
-        Ok(Self {
-            file 
-        })
+        Ok(Self { file })
     }
 
     /// Synchonously read and deserialize all lines from the saved eventlog
     /// transform EventLog into an actor Eventlog ready for usage in the system
     pub fn initialize<T>(self) -> Result<(Vec<T>, EventLogPersistenceActorJson), std::io::Error>
-        where T: DeserializeOwned
+    where
+        T: DeserializeOwned,
     {
         let buffered_reader = BufReader::new(&self.file);
-        
+
         // read all events from the eventlog
-        let events = buffered_reader.lines()
-            .map(| raw_line | 
-                raw_line.map( | line | 
-                    serde_json::from_str::<T>(&line)
-                )
-            )
+        let events = buffered_reader
+            .lines()
+            .map(|raw_line| raw_line.map(|line| serde_json::from_str::<T>(&line)))
             .collect::<Result<Vec<Result<T, serde_json::Error>>, std::io::Error>>()?;
 
         Ok((
-            events.into_iter().collect::<Result<Vec<T>, serde_json::Error>>()?,
-            EventLogPersistenceActorJson { file: self.file }
+            events
+                .into_iter()
+                .collect::<Result<Vec<T>, serde_json::Error>>()?,
+            EventLogPersistenceActorJson { file: self.file },
         ))
     }
 }
@@ -60,11 +58,12 @@ impl EventLogPersistenceJson {
 #[derive(Message)]
 #[rtype(result = "Result<(), std::io::Error>")]
 pub struct PersistEventMessage<T>(pub T)
-    where T: Serialize;
-
+where
+    T: Serialize;
 
 impl<T> Handler<PersistEventMessage<T>> for EventLogPersistenceActorJson
-where T: serde::Serialize
+where
+    T: serde::Serialize,
 {
     type Result = Result<(), std::io::Error>;
 

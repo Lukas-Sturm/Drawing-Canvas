@@ -4,10 +4,16 @@ Hallo, {{name}} :-)
 
 <ul>
 
-    {{#each canvases}}
+    {{#each canvas}}
     <li>
-        <a data-spa-request href="/canvas/{{this.id}}">{{this.name}}</a>
+        <a data-spa-request href="/canvas/{{this.id}}">{{this.name}} as {{this.access_level}}</a>
     </li>
     {{/each}}
 
 </ul>
+
+<form method="post" data-spa-request action="/canvas">
+    <h3>Create new Canvas</h3>
+    <input type="text" name="name" placeholder="Canvas Name">
+    <button type="submit">Create Canvas</button>
+</form>
