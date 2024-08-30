@@ -56,7 +56,7 @@ where
 
     fn call(&self, mut req: ServiceRequest) -> Self::Future {
         // TODO: check how this works with Query Strings
-        if req.path().starts_with("/assets") || req.path().eq("/") {
+        if req.path().starts_with("/assets") {
             println!("Request {:?} for assets, forwarding", req.uri());
             return self
                 .service
@@ -72,12 +72,10 @@ where
                 .call(req)
                 .map_ok(ServiceResponse::map_into_left_body)
                 .boxed_local();
-        } else {
-            println!("Regex else for {:?}", req.uri());
         }
 
         // request not send from js, internal redirect to /
-        if !req.headers().contains_key("X-SPA-Request") {
+        if !req.path().eq("/") && !req.headers().contains_key("X-SPA-Request") {
             println!("Not SPA Request {:?}, Internal redirect to /", req.uri());
             // Not 100% sure if this is the correct way to update the request uri
             // Works for this demo application, but might not be the best way, would ask actix-web devs for prod

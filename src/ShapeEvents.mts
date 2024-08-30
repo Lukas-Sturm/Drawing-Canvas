@@ -23,6 +23,8 @@ export interface BaseEvent {
     type: ShapeEventType
     origin: string // will be used in the future to resolve conflicts (hopefully)
     timestamp: number
+    external?: true // used to easily identify events that were received from the server
+    // external stripped in serialization
 }
 
 export interface ShapeAddedEvent extends BaseEvent {
@@ -72,7 +74,16 @@ export type ShapeEventDefinitions = {
 // Helper Functions
 
 function generateOrigin() {
-    return (Math.random() + 1).toString(36).substring(7)
+    const userid = document.querySelector('script[data-user-id]')?.getAttribute('data-user-id')
+
+    // TODO: consider using time, to avoid collisions
+
+    if (!userid) {  
+        console.warn('Canvas served without user id, using random origin')
+        return (Math.random() + 1).toString(36).substring(7)
+    }
+
+    return userid + (Math.random() + 1).toString(36).substring(7)
 }
 
 function sendShapeAddedEvent(origin: string, shape: Shape) {

@@ -2,6 +2,9 @@ use crate::canvas::store::CanvasClaim;
 use crate::canvas::store::GetUserClaimsMessage;
 use crate::templates;
 use crate::user;
+use crate::userstore::GetUserMessage;
+use crate::userstore::SimpleUser;
+use crate::userstore::User;
 use actix::Recipient;
 use actix_web::body::BoxBody;
 use actix_web::body::EitherBody;
@@ -12,6 +15,7 @@ use actix_web::web;
 use actix_web::Error;
 use actix_web::HttpMessage;
 use futures_util::future::LocalBoxFuture;
+use futures_util::try_join;
 use futures_util::{FutureExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use std::future::{ready, Ready};
@@ -19,9 +23,29 @@ use std::future::{ready, Ready};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JWTClaims {
     pub uid: String,
+    pub nam: String,
+    pub eml: String,
     pub can: Vec<CanvasClaim>,
     pub exp: usize,
     pub rfr: String,
+}
+
+pub struct JWTUser {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub claims: Vec<CanvasClaim>,
+}
+
+impl From<JWTClaims> for JWTUser {
+    fn from(claims: JWTClaims) -> Self {
+        JWTUser {
+            id: claims.uid,
+            username: claims.nam,
+            email: claims.eml,
+            claims: claims.can,
+        }
+    }
 }
 
 pub struct RefreshClaims {
@@ -41,7 +65,7 @@ pub struct ClientIdentifier {
     agent: String,
 }
 
-pub fn generate_jwt_token(user_id: String, canvas_claims: Vec<CanvasClaim>) -> Result<String, std::io::Error> {
+pub fn generate_jwt_token(user: SimpleUser, canvas_claims: Vec<CanvasClaim>) -> Result<String, std::io::Error> {
 
     // Problem: claims are not stored in the token
     // if the claims change, the token is still valid and won't be invalidated
@@ -49,7 +73,9 @@ pub fn generate_jwt_token(user_id: String, canvas_claims: Vec<CanvasClaim>) -> R
     // NOTE: this is a bad solution but JWT is not realy meant to store session data, but it is required by the exercise
 
     let claims = JWTClaims {
-        uid: user_id,
+        uid: user.id,
+        nam: user.username,
+        eml: user.email,
         can: canvas_claims,
         exp: chrono::Utc::now().timestamp() as usize + 15, // valid for 15 seconds
         rfr: "refresh".to_string(),
@@ -120,10 +146,8 @@ where
                     req.extensions_mut().insert(token.claims.clone());
 
                     if token.claims.exp < chrono::Utc::now().timestamp() as usize {
-                        println!("Token expired");
-
                         if token.claims.rfr == "refresh" {
-                            println!("Refreshing allowed");
+                            println!("Token expired, Refreshing allowed");
 
                             // Explanation: This calles the next middleware in the chain
                             // then receives the response. This is a future, we can then attach a future to be executed after the response is generated
@@ -135,13 +159,26 @@ where
 
                                     let canvas_store = res.request().app_data::<web::Data<Recipient<GetUserClaimsMessage>>>();
 
-                                    if let Some(canvas_store) = canvas_store {
-                                        let claims = canvas_store.send(GetUserClaimsMessage {
-                                            user_id: token.claims.uid.clone(),
-                                        }).await.map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?;
+                                    let user_store = res.request().app_data::<web::Data<Recipient<GetUserMessage>>>();
+
+                                    if let (Some(canvas_store), Some(user_store)) = (canvas_store, user_store) {
+                                        
+                                        let (claims, user) = try_join!(
+                                            canvas_store.send(GetUserClaimsMessage {
+                                                user_id: token.claims.uid.clone(),
+                                            }),
+                                            user_store.send(GetUserMessage {
+                                                username_email: None,
+                                                user_id: Some(token.claims.uid.clone()),
+                                            })
+                                        ).map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?; // mailing error
+                                        // TODO: consider logging alterting system, if this error occurs, something is very wrong 
+
+                                        let user = user
+                                            .map_or(Err(error::ErrorInternalServerError("Failed to refresh token")), | user | Ok(user))?;
                                         // TODO: consider logging alterting system, if this error occurs, something is very wrong 
                                         
-                                        let refreshed_token = generate_jwt_token(token.claims.uid.clone(), claims).map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?;
+                                        let refreshed_token = generate_jwt_token(user.into(), claims).map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?;
                                         // TODO: consider logging alterting system, if this error occurs, something is wrong
 
                                         res.response_mut().add_cookie(
@@ -160,7 +197,7 @@ where
                                 .map_ok(ServiceResponse::map_into_left_body::<BoxBody>)
                                 .boxed_local()
                         } else {
-                            println!("Refresh not allowed");
+                            println!("Token expired, Refresh not allowed");
 
                             Box::pin(async {
                                 let redirect_response = templates::redirect_to_static("login", req.request());
@@ -168,8 +205,6 @@ where
                             })
                         }
                     } else {
-                        println!("Valid Token: {:?}", token.claims);
-    
                         // TODO: consider recreating token if request requests it. skips waiting time for refreshtoken
                         self.service
                             .call(req)

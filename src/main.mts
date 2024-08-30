@@ -8,15 +8,75 @@
 // WebComponents also don't realy work because they need to be defined before the content is loaded, but because the Script is executed after the content is loaded, the WebComponents are not defined yet
 //   -->  Scripts that use WebComponents need to listen to the AJAXContentLoaded event and then create the WebComponents and not rely on the provided DOM
 
-// Loaded CSS gets removed if the Node is removed
+// Loaded CSS gets removed if the Node is removed -> Not
+import './styles/Style.css'
 
 document.addEventListener('DOMContentLoaded', setupSPA)
 
+async function fetchAndLoad(contentElement: HTMLElement, url: string, options?: RequestInit) {
+    const base = { method: 'GET', cache: 'no-cache', headers: { 'X-SPA-Request': 'true' } }
+    const data = Object.assign(base, options)
+    const response = await fetch(url, data)
+
+    if (response.status === 200) {
+        // handle popovers specially
+        if (contentElement.hasAttribute('popover')) {
+            response.text()
+                .then(replaceContent(contentElement, false))
+                .then(() => {
+                    contentElement.showPopover()
+                    setTimeout(() => {
+                        contentElement.hidePopover()
+                    }, 2000)
+                })
+        } else {
+            response.text()
+                .then(text => {
+                    document.dispatchEvent(new Event('AJAXPreContentLoading'))
+                    // could react to prevent default here
+                    return text
+                })
+                .then((text) => {
+                    if (data.method !== 'GET' && response.redirected) {
+                        updateHistoryState(response.url)
+                    } else if (data.method === 'GET' ) {
+                        updateHistoryState(response.url)
+                    }
+                    return text
+                })
+                .then(replaceContent(contentElement))
+                .then(() => {
+                    // replaceContent yields after all scripts are loaded
+                    document.dispatchEvent(new Event('AJAXContentLoaded'))
+                })
+        }
+    } else {
+        let errorPopover = document.querySelector('#error-pop')
+        if (errorPopover instanceof HTMLElement) {
+
+            response.text()
+                .then(replaceContent(errorPopover, false))
+                .then(() => {
+                    errorPopover.showPopover()
+                    setTimeout(() => {
+                        errorPopover.hidePopover()
+                    }, 3000)
+                })
+
+        } else {
+            console.error('Failed to load content and no error popover found', response)
+        }
+    }
+}
+
 async function setupSPA() {
-    const contentElement = document.getElementById('content');
+
+    console.log('Setting up SPA')
+
+    const contentElement = document.getElementById('content')
     if (!contentElement) {
-        console.error('No content element found');
-        return;
+        console.error('No content element found')
+        return
     }
 
     let initialPath = window.location.pathname
@@ -26,15 +86,16 @@ async function setupSPA() {
     }
 
     // initial load
-    const response = await fetch(initialPath, { cache: "no-cache", headers: { 'X-SPA-Request': 'true' } });
+    await fetchAndLoad(contentElement, initialPath)
 
-    if (response.status === 200) {
-        response.text().then(replaceContent(contentElement, response));
-    } else {
-        console.error('Failed to load content');
-    }
+    registerSPAOverides(contentElement)
 
-    registerSPAOverides(contentElement);
+    window.addEventListener('popstate', async (event) => {
+        console.log('SPA back event', event.state)
+        if (event.state.url) {
+            await fetchAndLoad(contentElement, event.state.url)
+        }
+    })
 }
 
 function registerSPAOverides(contentElement: HTMLElement) {
@@ -64,22 +125,12 @@ function registerSPAOverides(contentElement: HTMLElement) {
         new FormData(sourceElement).forEach((value, key) => {
             formData.append(key, value.toString())
         })
-        
-        console.group('AJAX From Submit:')
-        console.log(action, method, formData)
-        fetch(action, {
-            cache: 'no-cache',
-            headers: {
-                'X-SPA-Request': 'true'
-            },
+
+        const target = updateTarget(contentElement, sourceElement)
+        await fetchAndLoad(target, action, {
             method: method,
             body: formData
-        }).then((response) => {
-            console.log(response)
-            console.groupEnd()
-            response.text().then(replaceContent(contentElement, response))
         })
-    
     })
     
     // registers AJAX handlers for anchors
@@ -92,15 +143,22 @@ function registerSPAOverides(contentElement: HTMLElement) {
         if (sourceElement instanceof HTMLAnchorElement) {
             event.preventDefault()
             
+            const target = updateTarget(contentElement, sourceElement)
             const action = sourceElement.getAttribute('href') || ''
-            console.group('AJAX Page Load')
-            console.log(action)
-            const response = await fetch(action, { cache: 'no-cache', headers: { 'X-SPA-Request': 'true' } })
-            console.log(response)
-            console.groupEnd()
-            response.text().then(replaceContent(contentElement, response))
+            await fetchAndLoad(target, action)
         }
     })
+}
+
+function updateTarget(target: HTMLElement, sourceElement: HTMLElement): HTMLElement {
+    const alternativeTarget = sourceElement.getAttribute('data-spa-target')
+    if (alternativeTarget) {
+        const newTarget = document.getElementById(alternativeTarget)
+        if (newTarget) {
+            return newTarget
+        }
+    }
+    return target
 }
 
 function eventAjaxRequestEnabled(element: EventTarget | null): element is HTMLElement {
@@ -108,44 +166,45 @@ function eventAjaxRequestEnabled(element: EventTarget | null): element is HTMLEl
 }
 
 function updateHistoryState(url: string) {
-    window.history.pushState({}, '', url);
+    window.history.pushState({ url }, '', url)
 }
 
 // replaces content and properly executes scripts
-function replaceContent(contentContainer: HTMLElement, response: Response) {
-    updateHistoryState(response.url);
-    
+function replaceContent(contentContainer: HTMLElement, loadScripts: boolean = true): (text: string) => Promise<Promise<void[]>> {
     return (text: string) => {
-
-        contentContainer.innerHTML = text // actual HTML5 Spec :)
+        return new Promise((resolve) => {
+            contentContainer.innerHTML = text // actual HTML5 Spec :)
+        
+            if (loadScripts) {
+                requestAnimationFrame(() => {
     
-        requestAnimationFrame(() => {
-
-            const allScriptsLoaded: Promise<void>[] = []
-
-            // get all script tags and replace them with new script tags
-            // because spec says that script tags should not be executed when inserted via innerHTML
-            contentContainer.querySelectorAll('script').forEach((script) => {
-                const newScript = document.createElement('script')
-                
-                allScriptsLoaded.push(new Promise((resolve) => newScript.addEventListener('load', () => resolve())))
-            
-                // copy all attributes
-                for (let i = 0; i < script.attributes.length; i++) {
-                    const attribute = script.attributes[i]
-                    newScript.setAttribute(attribute.name, attribute.value)
-                }
-
-                // copy content
-                newScript.text = script.text
-
-                script.replaceWith(newScript)
-            })
-
-            // notify all scripts that they are loaded
-            Promise.all(allScriptsLoaded).then(() => {
-                document.dispatchEvent(new Event('AJAXContentLoaded'))
-            })
+                    const allScriptsLoaded: Promise<void>[] = []
+        
+                    // get all script tags and replace them with new script tags
+                    // needed, because spec states that script tags should not be executed when inserted via innerHTML
+                    contentContainer.querySelectorAll('script').forEach((script) => {
+                        const newScript = document.createElement('script')
+                        
+                        allScriptsLoaded.push(new Promise((resolve) => newScript.addEventListener('load', () => resolve(), { once: true })))
+                    
+                        // copy all attributes
+                        for (let i = 0; i < script.attributes.length; i++) {
+                            const attribute = script.attributes[i]
+                            newScript.setAttribute(attribute.name, attribute.value)
+                        }
+        
+                        // copy content
+                        newScript.text = script.text
+        
+                        script.replaceWith(newScript)
+                    })
+        
+                    // notify all scripts that they are loaded
+                    resolve(Promise.all(allScriptsLoaded))
+                })
+            } else {
+                resolve(Promise.resolve([]))
+            }
         })
     }
 }

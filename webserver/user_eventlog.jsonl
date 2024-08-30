@@ -1,1 +1,2 @@
 {"type":"UserRegistered","timestamp":1723868109395,"user_id":"77740f0c","user":{"id":"77740f0c","email":"hans@mail.de","username":"hans","password_hash":"$argon2id$v=19$m=19456,t=3,p=1$Zpb67Rn5aZfdDPj/0lk8RA$Jl9SsVs+BtEwRhQBVkCqfA4+Cixmh4p+N4CZHEjWewQ"}}
+{"type":"UserRegistered","timestamp":1724807960976,"user_id":"06880aca","user":{"id":"06880aca","email":"lukas@mail.de","username":"lukas","password_hash":"$argon2id$v=19$m=19456,t=3,p=2$FK1FsTw7zNUCmX+Jaz5qHg$OoHC8YwhDH+sIlJmAEqLrVfMZGqTw5m3C8FH3kooCEY"}}

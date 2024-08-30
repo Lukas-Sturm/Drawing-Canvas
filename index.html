@@ -23,13 +23,24 @@
         <a data-spa-request href="/login">Login</a>
         <a data-spa-request href="/register">Register</a>
         <a data-spa-request href="/home">Home</a>
-        <a data-spa-request href="/canvas">Canvas</a>
+        <form class="logout-form" id="logout-form" data-spa-request method="post" action="/logout">
+          <!-- <a href="javascript:{}" onclick="console.log('Test')">Logout</a> -->
+          <a href="javascript:{}" onclick="document.querySelector('#logout-form')?.requestSubmit()">Logout</a>
+        </form>
       </nav>
     </header>
 
     <hr />
 
     <div id="content">
+    </div>
+
+    <div id="error-pop" popover="auto" class="error-popup">
+      This is an error
+    </div>
+
+    <div id="info-pop" popover="auto" class="info-popup">
+      This is a information
     </div>
   </body>
 </html>

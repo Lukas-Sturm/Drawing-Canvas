@@ -98,7 +98,6 @@ export class DrawingCanvas extends HTMLElement {
 
     protected drawSelection() {
         this.selectionCanvasRenderCtx.clearRect(0, 0, this.config.width, this.config.height)
-        // {}
         this.shapeStore.getShapes().forEach((shape) => shape.drawSelection(this.selectionCanvasRenderCtx))
     }
 
@@ -207,10 +206,35 @@ export class DrawingCanvas extends HTMLElement {
             contextMenu.show(e.clientX, e.clientY)
         })
 
+        const debounce: {e: MouseEvent, delta: number, timeout: number | undefined} = {
+            e: new MouseEvent('mousemove'),
+            delta: 0,
+            timeout: undefined
+        }
+
         // Handler for shape factories
         this.selectionCanvas.addEventListener('mousemove', (e) => {
             if (e.button !== 0) return
-            this.toolArea.getSelectedTool()?.handleMouseMove(e.offsetX, e.offsetY, e)
+
+            debounce.delta += Math.abs(e.offsetX - debounce.e.offsetX) + Math.abs(e.offsetY - debounce.e.offsetY)
+            debounce.e = e
+
+            if (debounce.delta > 20) {
+                this.toolArea.getSelectedTool()?.handleMouseMove(e.offsetX, e.offsetY, e)
+                debounce.delta = 0
+
+                window.clearTimeout(debounce.timeout)
+                debounce.timeout = undefined
+            }
+            
+            // start a timeout to send event
+            // this allows persice mouse movement, sub debounce movement
+            if (debounce.timeout) return
+            debounce.timeout = window.setTimeout(() => {
+                this.toolArea.getSelectedTool()?.handleMouseMove(debounce.e.offsetX, debounce.e.offsetY, debounce.e)
+                debounce.delta = 0
+                debounce.timeout = undefined
+            }, 80)
         })
         this.selectionCanvas.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return

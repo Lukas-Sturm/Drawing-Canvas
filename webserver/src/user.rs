@@ -2,6 +2,7 @@ use crate::authentication::{self, JWTClaims};
 use crate::canvas::store::GetUserClaimsMessage;
 use crate::templates;
 use crate::userstore::{GetUserMessage, RegisterUser, RegisterUserMessage};
+use actix::dev::Request;
 use actix::Recipient;
 use actix_web::{cookie::Cookie, error, get, post, web, HttpResponse, Responder, Result};
 use actix_web::{middleware, HttpMessage, HttpRequest};
@@ -45,10 +46,11 @@ async fn login(
 ) -> Result<impl Responder> {
     let user = user_store_addr
         .send(GetUserMessage {
-            username_email: login_form.username_email.clone(),
+            username_email: Some(login_form.username_email.clone()),
+            user_id: None,
         })
         .await
-        .map_err(|_| error::ErrorInternalServerError("Failed to login, try again later"))??;
+        .map_err(|_| error::ErrorInternalServerError("Failed to login, try again later"))?;
 
     if let Some(user) = user {
         let parsed_hash = PasswordHash::new(&user.password_hash)
@@ -63,7 +65,7 @@ async fn login(
             }).await.map_err(|_| error::ErrorInternalServerError("Failed to login, try again later"))?; 
             //TODO: consider logging alterting system, if this error occurs, something is very wrong
 
-            let jwt_token = authentication::generate_jwt_token(user.id.clone(), claims)?;
+            let jwt_token = authentication::generate_jwt_token(user.into(), claims)?;
             let mut redirect_response = templates::builder_redirect_to_static("home", &request);
             return Ok(redirect_response
                 .cookie(
@@ -121,13 +123,21 @@ async fn register(
     Ok(templates::redirect_to_static("login", &request))
 }
 
-#[post("/edit")]
-async fn edit(register_form: web::Form<RegisterForm>) -> impl Responder {
-    if register_form.password1 != register_form.password2 {
-        return HttpResponse::BadRequest().body("Passwords do not match");
-    }
+#[post("/logout")]
+async fn logout_handler(
+    request: HttpRequest,
+) -> impl Responder {
+    let mut redirect_response = templates::builder_redirect_to_static("login", &request);
+    // redirect_response.
+    let mut cookie = Cookie::build(AUTH_COOKIE_NAME, "")
+        .same_site(actix_web::cookie::SameSite::Lax)
+        .http_only(true)
+        .path("/")
+        .finish();
+    cookie.make_removal();
 
-    HttpResponse::Ok().body(register_form.username.clone())
+    redirect_response.cookie(cookie);
+    redirect_response.finish()
 }
 
 async fn home_request_handler(
@@ -138,7 +148,7 @@ async fn home_request_handler(
     let user_data= request.extensions()
         .get::<JWTClaims>()
         .map_or(
-            Err(error::ErrorInternalServerError("Failed to authenticate")),
+            Err(error::ErrorUnauthorized("Failed to authenticate")),
             |claims| Ok(claims.clone()))?;
 
     let canvas: Vec<_> = user_data.can.iter().map(| claim | json!({
@@ -146,13 +156,12 @@ async fn home_request_handler(
         "id": claim.c,
         "access_level": claim.r,
     })).collect();
-            
+
     let template_data = json!({
         "id": user_data.uid,
+        "name": user_data.nam,
         "canvas": canvas,
     });
-
-    dbg!(&template_data);
 
     handlebars
         .render("home", &template_data)
@@ -177,10 +186,10 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(login_page)
         .service(register)
         .service(register_page)
+        .service(logout_handler)
         .service(
             web::resource("/home")
                 .name("home")
-                .wrap(middleware::NormalizePath::trim())
                 .wrap(authentication::AuthenticationService) // requires authentication
                 .route(web::get().to(home_request_handler)),
         );

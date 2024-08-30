@@ -1,4 +1,4 @@
-import {CanvasShape, Point2D, Tool} from "./types.mjs"
+import {CanvasShape, Point2D, SelectionOptions, Tool} from "./types.mjs"
 import {convertShape} from "./CanvasShapes.mjs"
 import {ArrayShapeStore} from "./ShapeStore.mjs"
 import {ShapeHelper} from "./Utils/ShapeHelper.mjs";
@@ -11,6 +11,10 @@ import {SHAPE_EVENT_BUS} from "./EventBus.mjs";
  */
 export class SelectionTool implements Tool {
     label: string = 'Auswahl'
+
+    public selectionOptions: SelectionOptions = {
+        color: '#43ff6480'
+    }
 
     protected currentEventOrigin = EventHelper.generateOrigin()
 
@@ -83,6 +87,7 @@ export class SelectionTool implements Tool {
         const shapesUnderCursor =
             this.shapeStore.getShapes()
                 .reverse()
+                .filter(shape => shape.toShape().temporary === false) // do not select temporary shapes
                 .filter(shape => shape.checkSelection(x, y))
         const selectedShapes = this.selectedShapes
 
@@ -194,7 +199,7 @@ export class SelectionTool implements Tool {
 
     protected selectShape(shape: CanvasShape): this {
         this.selectedShapes.push(shape.id)
-        EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, {color: '#43ff6480'})
+        EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, this.selectionOptions)
         return this
     }
 

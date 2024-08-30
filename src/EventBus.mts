@@ -19,6 +19,10 @@ type ListenerMap<T> = Partial<{ [ K in keyof T ]: Array<Listener<T, K>> }>
 class ClientOnlyEventBus<T> implements EventBus<T> {
     protected listeners: ListenerMap<T> = { }
 
+    /**
+     * Add an event listener for a specific event type
+     * @returns function to remove the listener
+     */
     addEventListener<K extends keyof T>(
         type: K,
         listener: (event: T[K]) => void
@@ -36,50 +40,15 @@ class ClientOnlyEventBus<T> implements EventBus<T> {
      * Helper Function to listen to all shape events
      * Needs an event handler for each event type
      * @param listeners Object with event types as keys and listener functions as values
+     * @returns function to remove all listeners
      */
-    listenToAllEvents(listeners: { [ K in keyof T ]: (event: T[K]) => void }) {
+    listenToAllEvents(listeners: { [ K in keyof T ]: (event: T[K]) => void }): () => void {
+        const listenerRemovers: Array<()=>void> = []
         for (const type in listeners) {
-            this.addEventListener(type, listeners[type])
+            listenerRemovers.push(this.addEventListener(type, listeners[type]))
         }
-    }
-
-    dispatchEvent<K extends keyof T>(
-        type: K,
-        event: T[K]
-    ) {
-        const eventListeners = this.listeners[type] || []
-        eventListeners.forEach(listener => listener(event))
-    }
-
-    reset() {
-        this.listeners = {}
-    }
-}
-
-class WebsocketEventBus<T> implements EventBus<T> {
-    protected listeners: ListenerMap<T> = { }
-
-    addEventListener<K extends keyof T>(
-        type: K,
-        listener: (event: T[K]) => void
-    ): () => void {
-        const eventListeners = this.listeners[type] || []
-        eventListeners.push(listener)
-        this.listeners[type] = eventListeners
-
         return () => {
-            eventListeners.splice(eventListeners.indexOf(listener), 1)
-        }
-    }
-
-    /**
-     * Helper Function to listen to all shape events
-     * Needs an event handler for each event type
-     * @param listeners Object with event types as keys and listener functions as values
-     */
-    listenToAllEvents(listeners: { [ K in keyof T ]: (event: T[K]) => void }) {
-        for (const type in listeners) {
-            this.addEventListener(type, listeners[type])
+            listenerRemovers.forEach(removeListener => removeListener())
         }
     }
 
@@ -92,6 +61,7 @@ class WebsocketEventBus<T> implements EventBus<T> {
     }
 
     reset() {
+        console.log('Resetting Event Bus')
         this.listeners = {}
     }
 }

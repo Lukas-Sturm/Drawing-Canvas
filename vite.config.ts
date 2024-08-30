@@ -15,8 +15,10 @@ export default {
     },
     server: {
         proxy: {
+            '/ws/canvas/': 'ws://localhost:8080',
             '/canvas': 'http://localhost:8080',
             '/login': 'http://localhost:8080',
+            '/logout': 'http://localhost:8080',
             '/register': 'http://localhost:8080',
             '/home': 'http://localhost:8080',
             '^/$': 'http://localhost:8080',

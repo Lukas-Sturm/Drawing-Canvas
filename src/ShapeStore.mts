@@ -74,8 +74,9 @@ export class ArrayShapeStore<T extends { id: any }> implements ShapeStore<T> {
         const cachedLookup = this.shapeLookup.get(shapeId)
         if (cachedLookup === undefined) throw new Error('Shape not found in lookup')
 
-        // const index = this.shapes.indexOf(shape)
         const index = cachedLookup.index
+
+        // TODO: skip temporary shapes
 
         if (index + layers < 0) return this.sendShapeToBack(shapeId)
         if (index + layers >= this.shapes.length) return this.sendShapeToFront(shapeId)

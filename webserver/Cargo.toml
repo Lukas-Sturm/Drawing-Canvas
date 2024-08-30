@@ -13,6 +13,7 @@ actix-ws = "0.3.0"
 anyhow = "1.0.86"
 argon2 = "0.5.3"
 chrono = "0.4.38"
+derive_more = { version = "1.0.0", features = ["error", "display"] }
 env_logger = "0.11.5"
 futures-util = "0.3.30"
 handlebars = { version = "6.0.0", features = ["dir_source"] }

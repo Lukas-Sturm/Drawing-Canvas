@@ -37,6 +37,24 @@ Im `/webserver` Ordner
   - snapshots
   - versioning
 
+Verwendet reine Events auf bus,
+Nur eine komponente neu, die empfagenen events im client weitergibt und userliste anzeigt
+
+Problem, mögliche Memory leaks, wie verhält sich JVM mit dem neuen laden von Komponenten usw
+Eventlistener bleiben bestehen!!
+
+Nur String verwendet, nicht sehr auf Speicher effizienz geachtet, viel clones
+
+Moveevent debounve
+
+Ein Problem mit änderungen an structs für stores
+
+Firefox 125+ benötigt
+
+Access Level kann live geändert werden
+
+Alles wird als event abgespeichert
+
 # Blatt 4
 ## Benutzerverwaltung
 - Passwort verwendet Argon2, mit passend sicheren Parametern

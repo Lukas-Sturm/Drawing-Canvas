@@ -29,6 +29,22 @@ pub struct User {
     pub password_hash: String,
 }
 
+pub struct SimpleUser {
+    pub id: UserId,
+    pub username: String,
+    pub email: String,
+}
+
+impl From<User> for SimpleUser {
+    fn from(user: User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+        }
+    }
+}
+
 pub struct UserStore {
     /// Address to the persistence actor, used to save and read events
     event_persistence_recipient: Recipient<PersistEventMessage<UserStoreEvents>>,
@@ -83,18 +99,6 @@ impl UserStore {
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "Result<User, std::io::Error>")]
-pub struct RegisterUserMessage {
-    pub user: RegisterUser,
-}
-
-#[derive(Message)]
-#[rtype(result = "Result<Option<User>, std::io::Error>")]
-pub struct GetUserMessage {
-    pub username_email: String,
-}
-
 impl Actor for UserStore {
     type Context = Context<Self>;
 }
@@ -130,6 +134,12 @@ pub enum UserStoreEvents {
         user_id: UserId,
         canvas_id: CanvasId,
     },
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<User, std::io::Error>")]
+pub struct RegisterUserMessage {
+    pub user: RegisterUser,
 }
 
 impl Handler<RegisterUserMessage> for UserStore {
@@ -236,13 +246,25 @@ impl Handler<RegisterUserMessage> for UserStore {
     }
 }
 
+#[derive(Message)]
+#[rtype(result = "Option<User>")]
+pub struct GetUserMessage {
+    pub username_email: Option<String>,
+    pub user_id: Option<UserId>,
+}
+
+
 impl Handler<GetUserMessage> for UserStore {
-    type Result = Result<Option<User>, std::io::Error>;
+    type Result = Option<User>;
 
     fn handle(&mut self, msg: GetUserMessage, _: &mut Self::Context) -> Self::Result {
-        Ok(
+        if let Some(user_id) = msg.user_id {
+            return self.users_id_lookup.get(&user_id).map(Clone::clone);
+        }
+
+        msg.username_email.map(| username_email | {
             self.users_email_lookup
-                .get(&msg.username_email) // check using email
+                .get(&username_email) // check using email
                 .map(|id| {
                     self.users_id_lookup
                         .get(id)
@@ -251,14 +273,14 @@ impl Handler<GetUserMessage> for UserStore {
                 })
                 .unwrap_or_else(|| // not found using email
                 self.users_username_lookup
-                    .get(&msg.username_email) // now check the username
+                    .get(&username_email) // now check the username
                     .map(|id|
                         self.users_id_lookup
                             .get(id)
                             .map(|user| Some(user.clone()))
                             .unwrap_or(None)
                     )
-                    .unwrap_or(None)), // not found
-        )
+                    .unwrap_or(None)) // not found
+        }).unwrap_or_default()
     }
 }

@@ -11,11 +11,17 @@ pub struct EventLogPersistenceActorJson {
     file: std::fs::File,
 }
 
+pub struct EventLogPersistenceStandaloneJson<T> {
+    file: std::fs::File,
+    _phantom: std::marker::PhantomData<T>,
+}
+
 impl Actor for EventLogPersistenceActorJson {
     type Context = Context<Self>;
 }
 
 pub struct EventLogPersistenceJson {
+    // this could use tokio::fs::File, but synchronous file access is easier :)
     file: std::fs::File,
 }
 
@@ -34,7 +40,7 @@ impl EventLogPersistenceJson {
 
     /// Synchonously read and deserialize all lines from the saved eventlog
     /// transform EventLog into an actor Eventlog ready for usage in the system
-    pub fn initialize<T>(self) -> Result<(Vec<T>, EventLogPersistenceActorJson), std::io::Error>
+    pub fn to_actor<T>(self) -> Result<(Vec<T>, EventLogPersistenceActorJson), std::io::Error>
     where
         T: DeserializeOwned,
     {
@@ -53,6 +59,39 @@ impl EventLogPersistenceJson {
             EventLogPersistenceActorJson { file: self.file },
         ))
     }
+
+    /// Synchonously read and deserialize all lines from the saved eventlog
+    /// transform EventLog into an actor Eventlog ready for usage in the system
+    pub fn to_standalone<T>(self) -> Result<(Vec<T>, EventLogPersistenceStandaloneJson<T>), std::io::Error>
+    where
+        T: DeserializeOwned,
+    {
+        let buffered_reader = BufReader::new(&self.file);
+
+        // read all events from the eventlog
+        let events = buffered_reader
+            .lines()
+            .map(|raw_line| raw_line.map(|line| serde_json::from_str::<T>(&line)))
+            .collect::<Result<Vec<Result<T, serde_json::Error>>, std::io::Error>>()?;
+
+        Ok((
+            events
+                .into_iter()
+                .collect::<Result<Vec<T>, serde_json::Error>>()?,
+            EventLogPersistenceStandaloneJson { file: self.file, _phantom: std::marker::PhantomData },
+        ))
+    }
+}
+
+impl<T> EventLogPersistenceStandaloneJson<T> 
+where
+    T: Serialize
+{
+    pub fn save_event(&mut self, event: &T) -> Result<(), std::io::Error> {
+        serde_json::to_writer(&self.file, event).unwrap();
+        self.file.write_all(&[b'\n'])?;
+        Ok(())
+    }
 }
 
 #[derive(Message)]
@@ -70,7 +109,7 @@ where
     fn handle(&mut self, msg: PersistEventMessage<T>, _: &mut Self::Context) -> Self::Result {
         // in error case, consider writing to a different file
         // in a production environment this would need to be handled more gracefully and thoughtfully
-        serde_json::to_writer(&mut self.file, &msg.0).unwrap();
+        serde_json::to_writer(&self.file, &msg.0).unwrap();
         self.file.write_all(&[b'\n'])?;
 
         println!("Wrote event to file");

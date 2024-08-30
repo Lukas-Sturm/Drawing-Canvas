@@ -87,6 +87,7 @@ class RadioOptionMenuItem implements MenuItem {
 class Menu implements MenuItem {
     protected readonly clickHandlerOptions = { capture: true }
     protected readonly clickHandler = this.handleMouseClick.bind(this) // required to remove the event listener
+    protected readonly mouseDownHandler = this.handleMouseDown.bind(this) // required to remove the event
     protected menuContainer: HTMLElement | undefined
     protected items: MenuItem[] = []
 
@@ -151,6 +152,7 @@ class Menu implements MenuItem {
         const elements = this.items.map(item => item.render(this))
         shadowDom.append(...elements)
 
+        document.addEventListener('mousedown', this.mouseDownHandler, this.clickHandlerOptions)
         document.addEventListener('click', this.clickHandler, this.clickHandlerOptions)
         document.addEventListener('contextmenu', this.clickHandler, this.clickHandlerOptions)
 
@@ -165,6 +167,7 @@ class Menu implements MenuItem {
      */
     hide() {
         if (this.menuContainer) {
+            document.addEventListener('mousedown', this.mouseDownHandler, this.clickHandlerOptions)
             document.removeEventListener('click', this.clickHandler, this.clickHandlerOptions)
             document.removeEventListener('contextmenu', this.clickHandler, this.clickHandlerOptions)
             this.menuContainer.remove()
@@ -209,6 +212,11 @@ class Menu implements MenuItem {
         const style = new CSSStyleSheet()
         style.replaceSync(menuStyles)
         return style
+    }
+
+    protected handleMouseDown(e: MouseEvent) {
+        if (e.target === this.menuContainer) return
+        this.hide()
     }
 
     protected handleMouseClick(e: MouseEvent) {

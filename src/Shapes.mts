@@ -12,6 +12,7 @@ export interface ShapeIdentifier {
 }
 
 export interface BaseShape {
+    temporary: boolean
     borderColor: string
     fillColor: string
 }
@@ -19,6 +20,7 @@ export interface BaseShape {
 const DefaultShape: BaseShape = {
     borderColor: 'black',
     fillColor: 'transparent',
+    temporary: false
 }
 
 export interface Line extends BaseShape, ShapeIdentifier {
@@ -58,7 +60,7 @@ abstract class AbstractFactory<T extends Shape> {
 
     protected constructor() {}
 
-    public abstract createShape(from: Point2D, to: Point2D): T
+    public abstract createShape(from: Point2D, to: Point2D, temporary: boolean): T
 
     handleMouseDown(x: number, y: number) {
         this.from = { x, y }
@@ -71,7 +73,7 @@ abstract class AbstractFactory<T extends Shape> {
         if (this.tmpShape) {
             EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, this.tmpShape.id)
         }
-        EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.createShape(this.from, { x, y }))
+        EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.createShape(this.from, { x, y }, false))
         this.from = undefined
     }
 
@@ -86,7 +88,7 @@ abstract class AbstractFactory<T extends Shape> {
                 EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, this.tmpShape.id)
             }
             // adds a new temp line
-            this.tmpShape = this.createShape(this.from, { x, y })
+            this.tmpShape = this.createShape(this.from, { x, y }, true)
             EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.tmpShape)
         }
     }
@@ -101,13 +103,14 @@ export class LineFactory extends AbstractFactory<Line> implements ShapeFactory {
         super()
     }
 
-    public createShape(from: Point2D, to: Point2D): Line {
+    public createShape(from: Point2D, to: Point2D, temporary: boolean): Line {
         return {
             ...DefaultShape,
             type: 'Line',
-            id: 'line-' + LineFactory.idCount++,
+            id: 'l-' + this.currentEventOrigin + LineFactory.idCount++,
             to,
-            from
+            from,
+            temporary
         }
     }
 }
@@ -121,13 +124,14 @@ export class CircleFactory extends AbstractFactory<Circle> implements ShapeFacto
         super()
     }
 
-    public createShape(from: Point2D, to: Point2D): Circle {
+    public createShape(from: Point2D, to: Point2D, temporary: boolean): Circle {
         return {
             ...DefaultShape,
             type: 'Circle',
-            id: 'circle-' + CircleFactory.idCount++,
+            id: 'c-' + this.currentEventOrigin + CircleFactory.idCount++,
             center: from,
-            radius: CircleFactory.computeRadius(from, to.x, to.y)
+            radius: CircleFactory.computeRadius(from, to.x, to.y),
+            temporary
         }
     }
 
@@ -147,13 +151,14 @@ export class RectangleFactory extends AbstractFactory<Rectangle> implements Shap
         super()
     }
 
-    public createShape(from: Point2D, to: Point2D): Rectangle {
+    public createShape(from: Point2D, to: Point2D, temporary: boolean): Rectangle {
         return {
             ...DefaultShape,
             type: 'Rectangle',
-            id: 'rectangle-' + RectangleFactory.idCount++,
+            id: 'r-' + this.currentEventOrigin + RectangleFactory.idCount++,
             to,
-            from
+            from,
+            temporary
         }
     }
 }
@@ -172,21 +177,22 @@ export class TriangleFactory implements ShapeFactory{
     private tmpShape?: Triangle
     private lineFactory = new LineFactory()
 
-    public createShape(p1: Point2D, p2: Point2D, p3: Point2D): Triangle {
+    public createShape(p1: Point2D, p2: Point2D, p3: Point2D, temporary: boolean): Triangle {
         return {
             ...DefaultShape,
             type: 'Triangle',
-            id: 'triangle-' + TriangleFactory.idCount++,
+            id: 't-' + this.currentEventOrigin + TriangleFactory.idCount++,
             p1,
             p2,
-            p3
+            p3,
+            temporary
         }
     }
 
     handleMouseDown(x: number, y: number) {
         if (this.tmpShape && this.from && this.tmpTo) {
             EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, this.tmpShape.id)
-            EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.createShape(this.from, this.tmpTo, { x,y }))
+            EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.createShape(this.from, this.tmpTo, { x,y }, false))
             this.from = undefined
             this.tmpTo = undefined
             this.tmpLine = undefined
@@ -206,7 +212,7 @@ export class TriangleFactory implements ShapeFactory{
             this.tmpLine = undefined
             this.tmpTo = { x,y }
             this.thirdPoint = { x,y }
-            this.tmpShape = this.createShape(this.from, this.tmpTo, this.thirdPoint)
+            this.tmpShape = this.createShape(this.from, this.tmpTo, this.thirdPoint, true)
             EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.tmpShape)
         }
     }
@@ -223,7 +229,7 @@ export class TriangleFactory implements ShapeFactory{
                     EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, this.tmpShape.id)
                 }
                 // adds a new temp triangle
-                this.tmpShape = this.createShape(this.from, this.tmpTo, this.thirdPoint)
+                this.tmpShape = this.createShape(this.from, this.tmpTo, this.thirdPoint, true)
                 EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.tmpShape)
             }
         } else { // no second point fixed, update tmp line
@@ -234,7 +240,7 @@ export class TriangleFactory implements ShapeFactory{
                     EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, this.tmpLine.id)
                 }
                 // adds a new temp line
-                this.tmpLine = this.lineFactory.createShape(this.from, this.tmpTo)
+                this.tmpLine = this.lineFactory.createShape(this.from, this.tmpTo, true)
                 EventHelper.sendShapeAddedEvent(this.currentEventOrigin, this.tmpLine)
             }
         }
