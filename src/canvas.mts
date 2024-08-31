@@ -11,6 +11,7 @@ import "./Components/MultiUser.mjs"
 import './Components/DrawingCanvas.mts'
 import './Components/ToolArea.mts'
 import { textToColor } from "./Utils/General.mts";
+import { EventHelper } from "./ShapeEvents.mts";
 
 // Something stops this module from beeing evaluated multiple times, even though the script is loaded multiple times, the below Event will only ever be handeled once
 // As far as I am aware, if the script is loaded and executed, it stays loaded and exectued, even if the script tag gets removed
@@ -57,8 +58,7 @@ document.addEventListener('AJAXContentLoaded', () => {
         const selectionMenuBuilder = new SelectionMenuBuilder()
         
         const selectionTool = new SelectionTool()
-        const userid = document.querySelector('script[data-user-id]')?.getAttribute('data-user-id')
-        selectionTool.selectionOptions.color = textToColor(userid || 'unknown')
+        selectionTool.selectionOptions.color = textToColor(EventHelper.generateOrigin())
 
         const tools: Tool|ShapeFactory[] = [
             // Tools

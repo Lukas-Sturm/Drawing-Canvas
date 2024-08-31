@@ -1,3 +1,4 @@
+use crate::canvas::store;
 use actix_web::{
     body::EitherBody,
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform, Url},
@@ -6,7 +7,6 @@ use actix_web::{
 use futures_util::{future::LocalBoxFuture, FutureExt, TryFutureExt};
 use regex::Regex;
 use std::future::{ready, Ready};
-use crate::canvas::store;
 
 pub struct SPAService;
 
@@ -24,22 +24,22 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         let regex = Regex::new(
-            format!("^/ws/canvas/[{}]{{{}}}/?$", 
+            format!(
+                "^/ws/canvas/[{}]{{{}}}/?$",
                 store::CANVAS_ID_ALPHABET_STR,
                 store::CANVAS_ID_LENGTH
-            ).as_str()
-        ).expect("Failed to generate canvas Websocket Regex");
-        
-        ready(Ok(SPAMiddleware { 
-            service,
-            regex 
-        }))
+            )
+            .as_str(),
+        )
+        .expect("Failed to generate canvas Websocket Regex");
+
+        ready(Ok(SPAMiddleware { service, regex }))
     }
 }
 
 pub struct SPAMiddleware<S> {
     service: S,
-    regex: Regex
+    regex: Regex,
 }
 
 impl<S, B> Service<ServiceRequest> for SPAMiddleware<S>
@@ -55,9 +55,8 @@ where
     forward_ready!(service);
 
     fn call(&self, mut req: ServiceRequest) -> Self::Future {
-        // TODO: check how this works with Query Strings
-        if req.path().starts_with("/assets") {
-            println!("Request {:?} for assets, forwarding", req.uri());
+        if req.path().starts_with("/assets/") {
+            // println!("Request {:?} for assets, forwarding", req.uri());
             return self
                 .service
                 .call(req)
@@ -66,7 +65,7 @@ where
         }
 
         if self.regex.is_match(req.path()) {
-            println!("Request {:?} for websocket, forwarding", req.uri());
+            // println!("Request {:?} for websocket, forwarding", req.uri());
             return self
                 .service
                 .call(req)
@@ -76,7 +75,7 @@ where
 
         // request not send from js, internal redirect to /
         if !req.path().eq("/") && !req.headers().contains_key("X-SPA-Request") {
-            println!("Not SPA Request {:?}, Internal redirect to /", req.uri());
+            // println!("Not SPA Request {:?}, Internal redirect to /", req.uri());
             // Not 100% sure if this is the correct way to update the request uri
             // Works for this demo application, but might not be the best way, would ask actix-web devs for prod
             let new_url = Url::new("/".parse().unwrap());

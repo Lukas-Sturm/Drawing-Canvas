@@ -1,23 +1,32 @@
-use std::{ops::Deref, result};
-
-use actix_web::{error::{ErrorInternalServerError, ErrorUnauthorized}, web, HttpMessage, HttpRequest, HttpResponse, Responder, Result};
+use crate::{
+    authentication::{self, JWTClaims},
+    templates, userstore,
+};
+use actix_web::{
+    error::{ErrorInternalServerError, ErrorUnauthorized},
+    web, HttpMessage, HttpRequest, HttpResponse, Responder, Result,
+};
 use handlebars::Handlebars;
 use serde::Deserialize;
 use serde_json::json;
 use server::CanvasSocketServerHandle;
+use store::{AccessLevel, AddUserToCanvasMessage, CanvasState, CreateCanvas, CreateCanvasMessage, UpdateCanvasStateMessage};
 use tokio::task::spawn_local;
-use crate::{authentication::{self, JWTClaims}, templates, userstore};
-use store::{AddUserToCanvasMessage, CreateCanvas, CreateCanvasMessage};
 
-pub mod store;
+pub mod error;
+pub mod events;
 pub mod server;
 pub mod socket_handler;
-pub mod events;
-pub mod error;
+pub mod store;
 
 #[derive(Deserialize)]
 struct CreateCanvasForm {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateCanvasForm {
+    state: CanvasState
 }
 
 #[derive(Deserialize)]
@@ -31,31 +40,28 @@ async fn canvas_page_handler(
     handlebars: web::Data<Handlebars<'_>>,
     canvas_id: web::Path<String>,
 ) -> Result<impl Responder> {
-    
-    let user_data = request.extensions()
-        .get::<JWTClaims>()
-        .map_or(
-            Err(ErrorInternalServerError("Failed to authenticate")),
-            |claims| Ok(claims.clone())
-        )?; 
+    let user_data = request.extensions().get::<JWTClaims>().map_or(
+        Err(ErrorInternalServerError("Failed to authenticate")),
+        |claims| Ok(claims.clone()),
+    )?;
 
-    if !user_data.can.iter().any(|claim| claim.c == canvas_id.as_str()) {
-        return Err(ErrorUnauthorized("Not authorized to view canvas"));
-    }
+    let claim = user_data
+        .can
+        .iter()
+        .find(|claim| claim.c == canvas_id.as_str())
+        .ok_or(ErrorUnauthorized("Not authorized to view canvas"))?;
 
     let template_data = json!({
         "userId": user_data.uid,
+        "accessLevel": claim.r.clone(),
+        "canvasName": claim.n.clone(),
         "timestamp": chrono::Utc::now().timestamp() as u64, // needed to force browser reevaluation of script
     });
 
     handlebars
         .render("canvas", &template_data)
-        .map(| rendered_page | {
-            web::Html::new(rendered_page)
-        })
-        .map_err(|_| {
-            ErrorInternalServerError("Failed to render canvas")
-        })
+        .map(web::Html::new)
+        .map_err(|_| ErrorInternalServerError("Failed to render canvas"))
 }
 
 async fn canvas_add_user_handler(
@@ -64,41 +70,86 @@ async fn canvas_add_user_handler(
     add_user_to_canvas_receipient: web::Data<actix::Recipient<store::AddUserToCanvasMessage>>,
     get_user_recipient: web::Data<actix::Recipient<userstore::GetUserMessage>>,
     add_user_canvas_from: web::Form<AddUserCanvasFrom>,
-    canvas_server_handle: web::Data<CanvasSocketServerHandle>
+    canvas_server_handle: web::Data<CanvasSocketServerHandle>,
 ) -> Result<impl Responder> {
+    let user_data = request.extensions().get::<JWTClaims>().map_or(
+        Err(ErrorInternalServerError("Failed to authenticate")),
+        |claims| Ok(claims.clone()),
+    )?;
 
-    let user_data= request.extensions()
-        .get::<JWTClaims>()
-        .map_or(
-            Err(ErrorInternalServerError("Failed to authenticate")),
-            |claims| Ok(claims.clone()))?;
-
-    if let Some(target_user) = get_user_recipient.send(userstore::GetUserMessage {
-        username_email: Some(add_user_canvas_from.username_email.clone()),
-        user_id: None,
-    }).await.map_err(| _ | ErrorInternalServerError("Failed to change access level"))? {
-
-        println!("Adding user to canvas: {} added {} as {:?} to {}", user_data.uid, target_user.id, add_user_canvas_from.access_level, canvas_id);
+    if let Some(target_user) = get_user_recipient
+        .send(userstore::GetUserMessage {
+            username_email: Some(add_user_canvas_from.username_email.clone()),
+            user_id: None,
+        })
+        .await
+        .map_err(|_| ErrorInternalServerError("Failed to change access level"))?
+    {
+        println!(
+            "Adding user to canvas: {} added {} as {:?} to {}",
+            user_data.uid, target_user.id, add_user_canvas_from.access_level, canvas_id
+        );
 
         let canvas_id = canvas_id.into_inner();
 
-        add_user_to_canvas_receipient.send(AddUserToCanvasMessage {
-            initiator_user_id: user_data.uid.clone(),
-            access_level: add_user_canvas_from.access_level.clone(),
-            canvas_id: canvas_id.clone(),
-            target_user_id: target_user.id.clone(),
-        })
-        .await
-        .map_err(| _ | ErrorInternalServerError("Failed to add user to canvas"))??;
+        add_user_to_canvas_receipient
+            .send(AddUserToCanvasMessage {
+                initiator_user_id: user_data.uid.clone(),
+                access_level: add_user_canvas_from.access_level.clone(),
+                canvas_id: canvas_id.clone(),
+                target_user_id: target_user.id.clone(),
+            })
+            .await
+            .map_err(|_| ErrorInternalServerError("Failed to add user to canvas"))??;
         // TODO: actor panic or mailbox full
 
         // at this point access level is valid
-        canvas_server_handle.update_user_permissions(canvas_id, user_data.uid, add_user_canvas_from.access_level.clone());
-        
-        Ok(HttpResponse::Ok().body(format!("Added {} as {:?}", target_user.id, add_user_canvas_from.access_level)))    
+        canvas_server_handle.update_user_permissions(
+            canvas_id,
+            user_data.uid,
+            add_user_canvas_from.access_level.clone(),
+        );
+
+        Ok(HttpResponse::Ok().body(format!(
+            "Added {} as {:?}",
+            target_user.id, add_user_canvas_from.access_level
+        )))
     } else {
         Ok(HttpResponse::NotFound().body("User not found"))
     }
+}
+
+async fn canvas_update_handler(
+    request: HttpRequest,
+    canvas_id: web::Path<String>,
+    update_canvas_state_receipient: web::Data<actix::Recipient<store::UpdateCanvasStateMessage>>,
+    canvas_server_handle: web::Data<CanvasSocketServerHandle>,
+    update_canvas_from: web::Form<UpdateCanvasForm>,
+) -> Result<impl Responder> {
+
+    let user_data = request.extensions().get::<JWTClaims>().map_or(
+        Err(ErrorInternalServerError("Failed to authenticate")),
+        |claims| Ok(claims.clone()),
+    )?;
+
+    user_data.can
+        .iter()
+        .find(|claim| 
+            claim.c == canvas_id.as_str() && (claim.r == AccessLevel::Owner || claim.r == AccessLevel::Moderate)
+        )
+        .ok_or(ErrorUnauthorized("Not authorized to update canvas"))?;
+
+    let canvas_id = canvas_id.into_inner();
+
+    update_canvas_state_receipient.send(UpdateCanvasStateMessage {
+        canvas_id: canvas_id.clone(),
+        initiator_id: user_data.uid.clone(),
+        state: update_canvas_from.state.clone()
+    }).await.map_err(|_| ErrorInternalServerError("Failed to update canvas"))??;
+
+    canvas_server_handle.update_canvas_state(canvas_id, update_canvas_from.state.clone(), user_data.uid);
+
+    Ok(HttpResponse::Ok().body("Canvas updated"))
 }
 
 async fn canvas_create_handler(
@@ -106,21 +157,21 @@ async fn canvas_create_handler(
     create_canvas_from: web::Form<CreateCanvasForm>,
     create_canvas_receipient: web::Data<actix::Recipient<CreateCanvasMessage>>,
 ) -> Result<impl Responder> {
-
     println!("Creating canvas: {}", create_canvas_from.name);
 
-    let user_data= request.extensions()
-        .get::<JWTClaims>()
-        .map_or(
-            Err(ErrorInternalServerError("Failed to authenticate")),
-            |claims| Ok(claims.clone()))?;
+    let user_data = request.extensions().get::<JWTClaims>().map_or(
+        Err(ErrorInternalServerError("Failed to authenticate")),
+        |claims| Ok(claims.clone()),
+    )?;
 
-    let canvas_save_event = create_canvas_receipient.send(CreateCanvasMessage {
-        canvas: CreateCanvas {
-            name: create_canvas_from.name.clone(),
-            owner_id: user_data.uid,
-        },
-    }).await;
+    let canvas_save_event = create_canvas_receipient
+        .send(CreateCanvasMessage {
+            canvas: CreateCanvas {
+                name: create_canvas_from.name.clone(),
+                owner_id: user_data.uid,
+            },
+        })
+        .await;
 
     let canvas = match canvas_save_event {
         Ok(Ok(canvas)) => canvas,
@@ -132,7 +183,11 @@ async fn canvas_create_handler(
 
     // TODO: update jwt token
 
-    Ok(templates::redirect_to("canvas", &request, &[canvas.id.as_str()]))
+    Ok(templates::redirect_to(
+        "canvas",
+        &request,
+        [canvas.id.as_str()],
+    ))
 }
 
 async fn canvas_websocket_handler(
@@ -144,17 +199,9 @@ async fn canvas_websocket_handler(
     let user_data = req
         .extensions()
         .get::<JWTClaims>()
-        .map_or(
-            Err(ErrorUnauthorized("Failed to authenticate")),
-            |claims| Ok(claims.clone())
-        )?;
-
-    let user_claim = user_data.can
-        .iter()
-        .find(|claim| claim.c == canvas_id.as_str())
-        .map(Clone::clone)
-        .map(|claim| Ok(claim))
-        .unwrap_or(Err(ErrorUnauthorized("Not authorized to view canvas")))?;
+        .map_or(Err(ErrorUnauthorized("Failed to authenticate")), |claims| {
+            Ok(claims.clone())
+        })?;
 
     let (res, session, msg_stream) = actix_ws::handle(&req, stream)?;
 
@@ -165,7 +212,6 @@ async fn canvas_websocket_handler(
         msg_stream,
         canvas_id.into_inner(),
         user_data.into(),
-        user_claim
     ));
 
     Ok(res)
@@ -182,11 +228,14 @@ pub fn canvas_service(cfg: &mut web::ServiceConfig) {
                     .route(web::get().to(canvas_page_handler))
                     .route(web::post().to(canvas_add_user_handler)),
             )
+            .service(
+                web::resource("/{canvas_id}/update")
+                    .route(web::post().to(canvas_update_handler)),
+            ),
     );
     cfg.service(
         web::resource("/ws/canvas/{canvas_id}")
             .wrap(authentication::AuthenticationService)
-            .route(web::get().to(canvas_websocket_handler))
+            .route(web::get().to(canvas_websocket_handler)),
     );
 }
-

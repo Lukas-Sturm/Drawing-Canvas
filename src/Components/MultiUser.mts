@@ -1,5 +1,7 @@
 import { SHAPE_EVENT_BUS } from "../EventBus.mts"
+import { EventHelper } from "../ShapeEvents.mts"
 import { deserializeEvent, serializeEvent } from "../Utils/EventSerialize.mts"
+import { textToColor } from "../Utils/General.mts"
 
 export class MultiUserOverlay extends HTMLElement {
     // readonly shadowDOM: ShadowRoot
@@ -8,7 +10,7 @@ export class MultiUserOverlay extends HTMLElement {
 
     protected socket: WebSocket | null = null
     protected eventListenerRemover: () => void = () => {}
-    protected users: Map<string, {name: string, accessLevel: string}> = new Map()
+    protected users: Map<string, {name: string, sessionId: string, accessLevel: string}> = new Map()
 
     constructor() {
         super()
@@ -79,6 +81,8 @@ export class MultiUserOverlay extends HTMLElement {
         this.userListElement.innerHTML = ''
         this.users.forEach((user) => {
             const userElement = document.createElement('li')
+            userElement.classList.add('user-list-item')
+            userElement.style.setProperty('--user-color', textToColor(user.sessionId));
             userElement.innerText = user.name
             this.userListElement.appendChild(userElement)
         })
@@ -93,10 +97,14 @@ export class MultiUserOverlay extends HTMLElement {
         const canvasPath = window.location.pathname
         console.log("Connecting to", host, canvasPath)
 
+        // opening, then attaching listeners does not seem to be a problem
+        // https://websockets.spec.whatwg.org/#feedback-from-the-protocol
         this.socket = new WebSocket(`ws://${host}/ws${canvasPath}`)
 
         this.socket.onopen = (event) => {
             console.log("Connected to server", event)
+
+            this.socket?.send(JSON.stringify({ type: 'RegisterSession', session: EventHelper.generateOrigin() }))
 
             this.removeChild(this.connectingElement)
 
@@ -105,16 +113,24 @@ export class MultiUserOverlay extends HTMLElement {
             this.buildUserList()
         }
 
+        this.socket.onclose = (event) => {
+            console.log("Disconnected from server", event)
+            // this.appendChild(this.connectingElement)
+        }
+
         this.socket.onmessage = (wsMessage) => {
             const rawEvent = JSON.parse(wsMessage.data)
 
             switch (rawEvent.type) {
                 case 'UserJoined':
-                    this.users.set(rawEvent.userId, {name: rawEvent.username, accessLevel: rawEvent.accessLevel})
+                    this.users.set(`${rawEvent.userId}-${rawEvent.sessionId}`, {name: rawEvent.username, sessionId: rawEvent.sessionId, accessLevel: rawEvent.accessLevel})
+                    console.log('user joined', `${rawEvent.userId}-${rawEvent.sessionId}`, this.users)
                     this.updateUserList()
                     break
                 case 'UserLeft':
-                    this.users.delete(rawEvent.userId)
+                    this.users.delete(`${rawEvent.userId}-${rawEvent.sessionId}`)
+                    console.log('user left', `${rawEvent.userId}-${rawEvent.sessionId}` ,this.users)
+                
                     this.updateUserList()
                     break
                 case 'UserAccessLevelChanged':

@@ -4,7 +4,6 @@ use crate::templates;
 use crate::user;
 use crate::userstore::GetUserMessage;
 use crate::userstore::SimpleUser;
-use crate::userstore::User;
 use actix::Recipient;
 use actix_web::body::BoxBody;
 use actix_web::body::EitherBody;
@@ -48,25 +47,27 @@ impl From<JWTClaims> for JWTUser {
     }
 }
 
-pub struct RefreshClaims {
-    /// User ID ? not sure if needed here
-    uid: String,
-    /// Client IP
-    ip: String,
-    /// User-Agent
-    agt: String,
-    exp: usize,
-}
+// pub struct RefreshClaims {
+//     /// User ID ? not sure if needed here
+//     uid: String,
+//     /// Client IP
+//     ip: String,
+//     /// User-Agent
+//     agt: String,
+//     exp: usize,
+// }
 
-pub struct ClientIdentifier {
-    /// hashed ip + use salt to prevent rainbow table attacks
-    ip: String,
-    /// hashed user-agent + salt to prevent rainbow table attacks
-    agent: String,
-}
+// pub struct ClientIdentifier {
+//     /// hashed ip + use salt to prevent rainbow table attacks
+//     ip: String,
+//     /// hashed user-agent + salt to prevent rainbow table attacks
+//     agent: String,
+// }
 
-pub fn generate_jwt_token(user: SimpleUser, canvas_claims: Vec<CanvasClaim>) -> Result<String, std::io::Error> {
-
+pub fn generate_jwt_token(
+    user: SimpleUser,
+    canvas_claims: Vec<CanvasClaim>,
+) -> Result<String, std::io::Error> {
     // Problem: claims are not stored in the token
     // if the claims change, the token is still valid and won't be invalidated
     // Solution: short expiration time and refresh token
@@ -141,7 +142,6 @@ where
 
             match jwt_decode {
                 Ok(token) => {
-
                     // add claims to request extensions
                     req.extensions_mut().insert(token.claims.clone());
 
@@ -155,14 +155,18 @@ where
                             // TODO: maybe ask on discord if this is "idiomatic" actix-web/async-rust
                             self.service
                                 .call(req)
-                                .and_then(| mut res | async move {
+                                .and_then(|mut res| async move {
+                                    let canvas_store = res
+                                        .request()
+                                        .app_data::<web::Data<Recipient<GetUserClaimsMessage>>>();
 
-                                    let canvas_store = res.request().app_data::<web::Data<Recipient<GetUserClaimsMessage>>>();
+                                    let user_store = res
+                                        .request()
+                                        .app_data::<web::Data<Recipient<GetUserMessage>>>();
 
-                                    let user_store = res.request().app_data::<web::Data<Recipient<GetUserMessage>>>();
-
-                                    if let (Some(canvas_store), Some(user_store)) = (canvas_store, user_store) {
-                                        
+                                    if let (Some(canvas_store), Some(user_store)) =
+                                        (canvas_store, user_store)
+                                    {
                                         let (claims, user) = try_join!(
                                             canvas_store.send(GetUserClaimsMessage {
                                                 user_id: token.claims.uid.clone(),
@@ -171,14 +175,27 @@ where
                                                 username_email: None,
                                                 user_id: Some(token.claims.uid.clone()),
                                             })
-                                        ).map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?; // mailing error
-                                        // TODO: consider logging alterting system, if this error occurs, something is very wrong 
+                                        )
+                                        .map_err(|_| {
+                                            error::ErrorInternalServerError(
+                                                "Failed to refresh token",
+                                            )
+                                        })?; // mailing error
+                                             // TODO: consider logging alterting system, if this error occurs, something is very wrong
 
-                                        let user = user
-                                            .map_or(Err(error::ErrorInternalServerError("Failed to refresh token")), | user | Ok(user))?;
-                                        // TODO: consider logging alterting system, if this error occurs, something is very wrong 
-                                        
-                                        let refreshed_token = generate_jwt_token(user.into(), claims).map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?;
+                                        let user = user.ok_or(error::ErrorInternalServerError(
+                                            "Failed to refresh token",
+                                        ))?;
+                                        // TODO: consider logging alterting system, if this error occurs, something is very wrong
+
+                                        let refreshed_token =
+                                            generate_jwt_token(user.into(), claims).map_err(
+                                                |_| {
+                                                    error::ErrorInternalServerError(
+                                                        "Failed to refresh token",
+                                                    )
+                                                },
+                                            )?;
                                         // TODO: consider logging alterting system, if this error occurs, something is wrong
 
                                         res.response_mut().add_cookie(
@@ -186,12 +203,14 @@ where
                                                 .same_site(actix_web::cookie::SameSite::Lax)
                                                 .http_only(true)
                                                 .path("/")
-                                                .finish()
+                                                .finish(),
                                         )?;
                                         // TODO: consider logging alterting system, if this error occurs, something is wrong
                                         Ok(res)
                                     } else {
-                                        Err(error::ErrorInternalServerError("Failed to refresh token"))
+                                        Err(error::ErrorInternalServerError(
+                                            "Failed to refresh token",
+                                        ))
                                     }
                                 })
                                 .map_ok(ServiceResponse::map_into_left_body::<BoxBody>)
@@ -200,7 +219,8 @@ where
                             println!("Token expired, Refresh not allowed");
 
                             Box::pin(async {
-                                let redirect_response = templates::redirect_to_static("login", req.request());
+                                let redirect_response =
+                                    templates::redirect_to_static("login", req.request());
                                 Ok(req.into_response(redirect_response.map_into_right_body()))
                             })
                         }
@@ -215,7 +235,8 @@ where
                 Err(e) => {
                     println!("Failed to decode token or invalid token: {:?}", e);
                     Box::pin(async {
-                        let redirect_response = templates::redirect_to_static("login", req.request());
+                        let redirect_response =
+                            templates::redirect_to_static("login", req.request());
                         Ok(req.into_response(redirect_response.map_into_right_body()))
                     })
                 }

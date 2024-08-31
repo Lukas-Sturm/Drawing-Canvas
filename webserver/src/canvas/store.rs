@@ -1,18 +1,19 @@
-
 use actix::prelude::*;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{persistence::{self, PersistEventMessage}, 
-userstore::UserId};
+use crate::{
+    persistence::{self, PersistEventMessage},
+    userstore::UserId,
+};
 
 use super::error::CanvasStoreError;
 
 /// Constants for the canvas id generation
 /// Splits the alphabet into single chars and creates a str
 /// Does everything at compile time, alphabet only needs to be defined once and both constants are generated
-/// Required in crate::spa to generate Regex for Websockets 
+/// Required in crate::spa to generate Regex for Websockets
 macro_rules! define_canvas_id_constants {
     ($alphabet_str:expr, $length:expr) => {
         pub const CANVAS_ID_ALPHABET_STR: &str = $alphabet_str;
@@ -37,7 +38,7 @@ pub const CANVAS_ID_LENGTH: usize = 12;
 
 define_canvas_id_constants!("1234567890abcdef", 16);
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[repr(u8)]
 pub enum AccessLevel {
     Read = b'R',
@@ -54,6 +55,15 @@ pub struct CanvasClaim {
     pub c: String,
     pub r: AccessLevel,
 }
+
+impl PartialEq for CanvasClaim {
+    fn eq(&self, other: &Self) -> bool {
+        self.c == other.c
+    }
+}
+
+// CanvasClaim is also total equal
+impl Eq for CanvasClaim {}
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct CreateCanvas {
@@ -103,7 +113,13 @@ impl CanvasStore {
         // events are applied in order, so we can just iterate over them
         for event in saved_events {
             match event {
-                CanvasStoreEvents::CanvasCreated { canvas_id, name, owner_id, state, .. } => {
+                CanvasStoreEvents::CanvasCreated {
+                    canvas_id,
+                    name,
+                    owner_id,
+                    state,
+                    ..
+                } => {
                     let claim = CanvasClaim {
                         n: name.clone(),
                         c: canvas_id.clone(),
@@ -113,39 +129,54 @@ impl CanvasStore {
                     let mut users = HashMap::with_capacity(1);
                     users.insert(owner_id.clone(), AccessLevel::Owner);
 
-                    canvas.insert(canvas_id.clone(), Canvas {
-                        id: canvas_id.clone(),
-                        name,
-                        owner_id: owner_id.clone(),
-                        state,
-                        users,
-                    });
+                    canvas.insert(
+                        canvas_id.clone(),
+                        Canvas {
+                            id: canvas_id.clone(),
+                            name,
+                            owner_id: owner_id.clone(),
+                            state,
+                            users,
+                        },
+                    );
                     user_id_lookup
                         .entry(owner_id)
-                        .and_modify(| e: &mut Vec<CanvasClaim> | e.push(claim.clone()))
+                        .and_modify(|e: &mut Vec<CanvasClaim>| e.push(claim.clone()))
                         .or_insert(vec![claim]);
-                },
-                CanvasStoreEvents::UserCanvasAdded { user_id, canvas_id, access_level, ..} => {    
-                    let canvas_entry = canvas
-                        .entry(canvas_id.clone());
+                }
+                CanvasStoreEvents::UserCanvasAdded {
+                    user_id,
+                    canvas_id,
+                    access_level,
+                    ..
+                } => {
+                    let canvas_entry = canvas.entry(canvas_id.clone());
 
                     let canvas = match canvas_entry {
                         std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(_) => anyhow::bail!("Canvas {} for user {} does not exist", canvas_id, user_id),
+                        std::collections::hash_map::Entry::Vacant(_) => anyhow::bail!(
+                            "Canvas {} for user {} does not exist",
+                            canvas_id,
+                            user_id
+                        ),
                     };
-                    
+
                     let claim = CanvasClaim {
                         n: canvas.name.clone(),
                         c: canvas_id.clone(),
                         r: access_level.clone(),
                     };
+
                     user_id_lookup
                         .entry(user_id.clone())
-                        .and_modify(| e: &mut Vec<CanvasClaim> | e.push(claim.clone()))
+                        .and_modify(|e: &mut Vec<CanvasClaim>| { 
+                            e.iter().position(| c |  c == &claim).map(|i| e.swap_remove(i));
+                            e.push(claim.clone());
+                        })
                         .or_insert(vec![claim.clone()]);
-                    
+
                     canvas.users.insert(user_id, access_level);
-                },
+                }
                 _ => (),
             }
         }
@@ -160,45 +191,57 @@ impl CanvasStore {
 
 impl CanvasStore {
     fn get_access_level(&self, user_id: &UserId, canvas_id: &CanvasId) -> AccessLevel {
-        self.user_id_lookup.get(user_id).map(| claims | {
-            claims
-                .iter()
-                .find(| claim | claim.c == *canvas_id)
-                .map(| claim | claim.r.clone())
-                .unwrap_or(AccessLevel::None)
-        }).unwrap_or(AccessLevel::None)
+        self.user_id_lookup
+            .get(user_id)
+            .map(|claims| {
+                claims
+                    .iter()
+                    .find(|claim| claim.c == *canvas_id)
+                    .map(|claim| claim.r.clone())
+                    .unwrap_or(AccessLevel::None)
+            })
+            .unwrap_or(AccessLevel::None)
     }
 
     fn validate_permission_change(
         &self,
         initiator_access_level: &AccessLevel,
         target_access_level: &AccessLevel,
-        access_level: &AccessLevel
+        access_level: &AccessLevel,
     ) -> Result<(), CanvasStoreError> {
         match (initiator_access_level, target_access_level, access_level) {
             // owner can't change himself
-            (AccessLevel::Owner, AccessLevel::Owner, _) =>
-                Err(CanvasStoreError::AccessDenied(String::from("Owner can't change his own access level"))),
+            (AccessLevel::Owner, AccessLevel::Owner, _) => Err(CanvasStoreError::AccessDenied(
+                String::from("Owner can't change his own access level"),
+            )),
             // owner can't elect a new owner
-            (AccessLevel::Owner, _, AccessLevel::Owner) =>
-                Err(CanvasStoreError::AccessDenied(String::from("Owner can't assign owner access level"))),
+            (AccessLevel::Owner, _, AccessLevel::Owner) => Err(CanvasStoreError::AccessDenied(
+                String::from("Owner can't assign owner access level"),
+            )),
 
             // owner can change anything else
             (AccessLevel::Owner, _, _) => Ok(()),
-            
+
             // moderate can't change owner nor moderator
-            (AccessLevel::Moderate, AccessLevel::Owner | AccessLevel::Moderate, _) => 
-                Err(CanvasStoreError::AccessDenied(String::from("Moderate can't change owner or moderate access level"))),
+            (AccessLevel::Moderate, AccessLevel::Owner | AccessLevel::Moderate, _) => {
+                Err(CanvasStoreError::AccessDenied(String::from(
+                    "Moderate can't change owner or moderate access level",
+                )))
+            }
             // moderate can't assign owner nor moderate
-            (AccessLevel::Moderate, _, AccessLevel::Owner | AccessLevel::Moderate) =>
-                Err(CanvasStoreError::AccessDenied(String::from("Moderate can't assign owner or moderate access level"))),
+            (AccessLevel::Moderate, _, AccessLevel::Owner | AccessLevel::Moderate) => {
+                Err(CanvasStoreError::AccessDenied(String::from(
+                    "Moderate can't assign owner or moderate access level",
+                )))
+            }
 
             // moderator is allowed to change any users access level that is left
             (AccessLevel::Moderate, _, _) => Ok(()),
 
             // non moderate or owner can't change anything
-            (_, _, _) => 
-                Err(CanvasStoreError::AccessDenied(String::from("User can't change access level")))
+            (_, _, _) => Err(CanvasStoreError::AccessDenied(String::from(
+                "User can't change access level",
+            ))),
         }
     }
 }
@@ -217,13 +260,10 @@ pub enum CanvasStoreEvents {
         owner_id: UserId,
         canvas_id: CanvasId,
         state: CanvasState,
-        name: String
+        name: String,
     },
     /// Deletes a canvas
-    CanvasDeleted {
-        timestamp: u64,
-        canvas_id: CanvasId,
-    },
+    CanvasDeleted { timestamp: u64, canvas_id: CanvasId },
     /// Adds the user to a canvas (this is mirrored in the canvas store, to make lookups easier)
     UserCanvasAdded {
         timestamp: u64,
@@ -238,6 +278,60 @@ pub enum CanvasStoreEvents {
         user_id: String,
         canvas_id: CanvasId,
     },
+    /// Changes the state of a canvas, moderated, active etc.
+    CanvasStateChanged {
+        timestamp: u64,
+        canvas_id: CanvasId,
+        initiator_id: UserId,
+        state: CanvasState,
+    },
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), std::io::Error>")]
+pub struct UpdateCanvasStateMessage {
+    pub canvas_id: CanvasId,
+    pub initiator_id: UserId,
+    pub state: CanvasState,
+}
+
+impl Handler<UpdateCanvasStateMessage> for CanvasStore {
+    type Result = AtomicResponse<Self, Result<(), std::io::Error>>;
+
+    fn handle(&mut self, msg: UpdateCanvasStateMessage, _: &mut Self::Context) -> Self::Result {
+
+        let event = CanvasStoreEvents::CanvasStateChanged {
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            canvas_id: msg.canvas_id.clone(),
+            initiator_id: msg.initiator_id.clone(),
+            state: msg.state.clone(),
+        };
+
+        AtomicResponse::new(Box::pin(
+            self.event_persistence_recipient
+                .send(persistence::PersistEventMessage(event))
+                .into_actor(self)
+                .map(move |result, canvasstore, _| {
+                    match result {
+                        Ok(Ok(_)) => {
+                            // insert after persistence
+                            if let Some(canvas) = canvasstore.canvases.get_mut(&msg.canvas_id) {
+                                canvas.state = msg.state;
+                            }
+                            Ok(())
+                        },
+                        Ok(Err(_)) => Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Failed to persist event",
+                        )),
+                        Err(_) => Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Failed to persist event",
+                        )),
+                    }
+                }),
+        ))
+    }
 }
 
 #[derive(Message)]
@@ -251,7 +345,6 @@ impl Handler<CreateCanvasMessage> for CanvasStore {
 
     // This function is atomic, meaning that the actor will not be able to handle any other messages until the response is resolved
     fn handle(&mut self, msg: CreateCanvasMessage, _: &mut Self::Context) -> Self::Result {
-        
         let id = (0..MAX_ID_GENERATION_ITERATIONS)
             .map(|_| nanoid!(CANVAS_ID_LENGTH, &CANVAS_ID_ALPHABET))
             .find(|id| !self.canvases.contains_key(id))
@@ -264,8 +357,7 @@ impl Handler<CreateCanvasMessage> for CanvasStore {
 
         let id = match id {
             Ok(id) => id,
-            Err(e) => 
-                return AtomicResponse::new(Box::pin(async move { Err(e) }.into_actor(self))),
+            Err(e) => return AtomicResponse::new(Box::pin(async move { Err(e) }.into_actor(self))),
         };
 
         let mut users = HashMap::with_capacity(1);
@@ -296,33 +388,37 @@ impl Handler<CreateCanvasMessage> for CanvasStore {
         };
         self.user_id_lookup
             .entry(msg.canvas.owner_id)
-            .and_modify(| e: &mut Vec<CanvasClaim> | e.push(canvas_claim.clone())) // clone here sucks 
+            .and_modify(|e: &mut Vec<CanvasClaim>| e.push(canvas_claim.clone())) // clone here sucks
             .or_insert(vec![canvas_claim]);
 
         AtomicResponse::new(Box::pin(
             self.event_persistence_recipient
                 .send(persistence::PersistEventMessage(event))
                 .into_actor(self)
-                .map( | result, canvasstore, _ | {
+                .map(|result, canvasstore, _| {
                     let canvas_for_error = canvas.clone(); // same as userstore this whole future thing already took to long to figure out, just copy user for error handling
                     match result {
                         Ok(Ok(_)) => Ok(canvas),
                         Ok(Err(_)) => Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
-                            "Failed to save user registration event",
+                            "Failed to persist create event",
                         )),
                         Err(_) => Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
-                            "Failed to save user registration event",
+                            "Failed to persist create event",
                         )),
-                    }.map_err(| error | {
+                    }
+                    .map_err(|error| {
                         canvasstore.canvases.remove(&canvas_for_error.id);
-                        canvasstore.user_id_lookup
+                        canvasstore
+                            .user_id_lookup
                             .entry(canvas_for_error.owner_id)
-                            .and_modify(| e: &mut Vec<CanvasClaim> | e.retain(| c | c.c != canvas_for_error.id));
+                            .and_modify(|e: &mut Vec<CanvasClaim>| {
+                                e.retain(|c| c.c != canvas_for_error.id)
+                            });
                         error
                     })
-                })
+                }),
         ))
     }
 }
@@ -337,7 +433,9 @@ impl Handler<GetUserClaimsMessage> for CanvasStore {
     type Result = Vec<CanvasClaim>;
 
     fn handle(&mut self, msg: GetUserClaimsMessage, _: &mut Self::Context) -> Self::Result {
-        self.user_id_lookup.get(&msg.user_id).map_or(Vec::new(), Clone::clone)
+        self.user_id_lookup
+            .get(&msg.user_id)
+            .map_or(Vec::new(), Clone::clone)
     }
 }
 
@@ -351,10 +449,9 @@ impl Handler<GetCanvasMessage> for CanvasStore {
     type Result = Option<Canvas>;
 
     fn handle(&mut self, msg: GetCanvasMessage, _: &mut Self::Context) -> Self::Result {
-        self.canvases.get(&msg.canvas_id).map(Clone::clone)
+        self.canvases.get(&msg.canvas_id).cloned()
     }
 }
-
 
 #[derive(Message, Clone)]
 #[rtype(result = "Result<(), CanvasStoreError>")]
@@ -369,8 +466,10 @@ impl Handler<AddUserToCanvasMessage> for CanvasStore {
     type Result = AtomicResponse<Self, Result<(), CanvasStoreError>>;
 
     fn handle(&mut self, msg: AddUserToCanvasMessage, _: &mut Self::Context) -> Self::Result {
-        if let None = self.canvases.get(&msg.canvas_id) {
-            return AtomicResponse::new(Box::pin(async move { Err(CanvasStoreError::CanvasNotFound) }.into_actor(self)));
+        if self.canvases.get(&msg.canvas_id).is_none() {
+            return AtomicResponse::new(Box::pin(
+                async move { Err(CanvasStoreError::CanvasNotFound) }.into_actor(self),
+            ));
         }
 
         let target_access_level = self.get_access_level(&msg.target_user_id, &msg.canvas_id);
@@ -379,7 +478,7 @@ impl Handler<AddUserToCanvasMessage> for CanvasStore {
         if let Err(e) = self.validate_permission_change(
             &initiator_access_level,
             &target_access_level,
-            &msg.access_level
+            &msg.access_level,
         ) {
             return AtomicResponse::new(Box::pin(async move { Err(e) }.into_actor(self)));
         }
@@ -396,9 +495,9 @@ impl Handler<AddUserToCanvasMessage> for CanvasStore {
             self.event_persistence_recipient
                 .send(persistence::PersistEventMessage(event))
                 .into_actor(self)
-                .map(move | result, canvasstore, _ | {
+                .map(move |result, canvasstore, _| {
                     match result {
-                        Ok(Ok(_)) => { 
+                        Ok(Ok(_)) => {
                             let msg = msg.clone();
 
                             // perform state update, after event is persisted
@@ -406,31 +505,35 @@ impl Handler<AddUserToCanvasMessage> for CanvasStore {
                             // canvas is guaranteed to exist, CanvasStore is not multi-threaded,
                             // AtomicRepsonse is used for exlusive state access
                             let canvas = canvasstore.canvases.get_mut(&msg.canvas_id).unwrap();
-                            canvas.users
+                            canvas
+                                .users
                                 .entry(msg.target_user_id.clone())
-                                .and_modify(| a | *a = (&msg.access_level).clone())
+                                .and_modify(|a| *a = msg.access_level.clone())
                                 .or_insert(msg.access_level.clone());
 
                             // update lookup cache, oof
-                            canvasstore.user_id_lookup
+                            canvasstore
+                                .user_id_lookup
                                 .entry(msg.target_user_id)
-                                .and_modify(| claims | {
-                                    claims.iter_mut()
-                                        .find(| claim | claim.c == msg.canvas_id)
-                                        .map(| claim | claim.r = msg.access_level.clone());
+                                .and_modify(|claims| {
+                                    if let Some(claim) =
+                                        claims.iter_mut().find(|claim| claim.c == msg.canvas_id)
+                                    {
+                                        claim.r = msg.access_level.clone();
+                                    }
                                 })
                                 .or_insert(vec![CanvasClaim {
                                     n: canvas.name.clone(),
                                     c: msg.canvas_id,
                                     r: msg.access_level,
                                 }]);
-                            
+
                             Ok(())
-                        },
+                        }
                         Ok(Err(_)) => Err(CanvasStoreError::PersistenceFailed),
                         Err(_) => Err(CanvasStoreError::PersistenceFailed),
                     }
-                })
+                }),
         ))
     }
 }
@@ -448,7 +551,7 @@ mod tests {
         let canvas_event_log = EventLogPersistenceJson::new("test.jsonl")
             .expect("Failed to create or load canvas event log");
         let (_, canvas_event_log) = canvas_event_log
-            .to_actor::<CanvasStoreEvents>()
+            .into_actor::<CanvasStoreEvents>()
             .expect("Failed to read canvas event log");
         let canvas_event_persistor_recipient = canvas_event_log.start().recipient();
 
@@ -496,23 +599,105 @@ mod tests {
 
         // note this does not use messages, only checks the validation function
 
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Read, &AccessLevel::Moderate, &AccessLevel::Write).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Read, &AccessLevel::Owner, &AccessLevel::Moderate).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::Moderate, &AccessLevel::Write).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::Owner, &AccessLevel::Write).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::None, &AccessLevel::Owner).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::None, &AccessLevel::Moderate).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::Voice, &AccessLevel::Moderate).is_err());
-        
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Write, &AccessLevel::Moderate, &AccessLevel::Write).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Voice, &AccessLevel::Moderate, &AccessLevel::Write).is_err());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::None, &AccessLevel::Moderate, &AccessLevel::Write).is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Read,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Read,
+                &AccessLevel::Owner,
+                &AccessLevel::Moderate
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::Owner,
+                &AccessLevel::Write
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::None,
+                &AccessLevel::Owner
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::None,
+                &AccessLevel::Moderate
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::Voice,
+                &AccessLevel::Moderate
+            )
+            .is_err());
 
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Write,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Voice,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_err());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::None,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_err());
 
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Owner, &AccessLevel::Moderate, &AccessLevel::Write).is_ok());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Owner, &AccessLevel::None, &AccessLevel::Moderate).is_ok());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::Write, &AccessLevel::Read).is_ok());
-        assert!(canvas_store.validate_permission_change(&AccessLevel::Moderate, &AccessLevel::Voice, &AccessLevel::None).is_ok());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Owner,
+                &AccessLevel::Moderate,
+                &AccessLevel::Write
+            )
+            .is_ok());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Owner,
+                &AccessLevel::None,
+                &AccessLevel::Moderate
+            )
+            .is_ok());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::Write,
+                &AccessLevel::Read
+            )
+            .is_ok());
+        assert!(canvas_store
+            .validate_permission_change(
+                &AccessLevel::Moderate,
+                &AccessLevel::Voice,
+                &AccessLevel::None
+            )
+            .is_ok());
     }
-
 }

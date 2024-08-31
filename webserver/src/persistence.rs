@@ -40,7 +40,7 @@ impl EventLogPersistenceJson {
 
     /// Synchonously read and deserialize all lines from the saved eventlog
     /// transform EventLog into an actor Eventlog ready for usage in the system
-    pub fn to_actor<T>(self) -> Result<(Vec<T>, EventLogPersistenceActorJson), std::io::Error>
+    pub fn into_actor<T>(self) -> Result<(Vec<T>, EventLogPersistenceActorJson), std::io::Error>
     where
         T: DeserializeOwned,
     {
@@ -62,7 +62,9 @@ impl EventLogPersistenceJson {
 
     /// Synchonously read and deserialize all lines from the saved eventlog
     /// transform EventLog into an actor Eventlog ready for usage in the system
-    pub fn to_standalone<T>(self) -> Result<(Vec<T>, EventLogPersistenceStandaloneJson<T>), std::io::Error>
+    pub fn into_standalone<T>(
+        self,
+    ) -> Result<(Vec<T>, EventLogPersistenceStandaloneJson<T>), std::io::Error>
     where
         T: DeserializeOwned,
     {
@@ -78,14 +80,17 @@ impl EventLogPersistenceJson {
             events
                 .into_iter()
                 .collect::<Result<Vec<T>, serde_json::Error>>()?,
-            EventLogPersistenceStandaloneJson { file: self.file, _phantom: std::marker::PhantomData },
+            EventLogPersistenceStandaloneJson {
+                file: self.file,
+                _phantom: std::marker::PhantomData,
+            },
         ))
     }
 }
 
-impl<T> EventLogPersistenceStandaloneJson<T> 
+impl<T> EventLogPersistenceStandaloneJson<T>
 where
-    T: Serialize
+    T: Serialize,
 {
     pub fn save_event(&mut self, event: &T) -> Result<(), std::io::Error> {
         serde_json::to_writer(&self.file, event).unwrap();

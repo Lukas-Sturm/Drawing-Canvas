@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::userstore::UserId;
 
-use super::store::AccessLevel;
+use super::{server::Msg, store::{AccessLevel, CanvasState}};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Point2D {
@@ -23,7 +23,7 @@ pub enum Shape {
         fillColor: String,
 
         from: Point2D,
-        to: Point2D
+        to: Point2D,
     },
     Circle {
         id: String,
@@ -32,7 +32,7 @@ pub enum Shape {
         fillColor: String,
 
         center: Point2D,
-        radius: f32
+        radius: f32,
     },
     Rectangle {
         id: String,
@@ -41,7 +41,7 @@ pub enum Shape {
         fillColor: String,
 
         from: Point2D,
-        to: Point2D
+        to: Point2D,
     },
     Triangle {
         id: String,
@@ -51,9 +51,9 @@ pub enum Shape {
 
         p1: Point2D,
         p2: Point2D,
-        p3: Point2D
-    }
-} 
+        p3: Point2D,
+    },
+}
 
 impl Shape {
     pub fn get_id(&self) -> &str {
@@ -76,7 +76,7 @@ impl Shape {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[allow(clippy::enum_variant_names)] // Canvas Application uses this naming 
+#[allow(clippy::enum_variant_names)] // Canvas Application uses this naming
 #[serde(tag = "type")]
 pub enum CanvasEvents {
     ShapeAdded {
@@ -114,21 +114,31 @@ pub enum CanvasEvents {
     UserJoined {
         timestamp: u64,
         userId: String,
+        sessionId: String,
         username: String,
-        accessLevel: AccessLevel
+        accessLevel: AccessLevel,
     },
     UserLeft {
         timestamp: u64,
-        userId: String
+        sessionId: String,
+        userId: String,
     },
     UserAccessLevelChanged {
         timestamp: u64,
         userId: String,
-        accessLevel: AccessLevel
+        accessLevel: AccessLevel,
     },
     CanvasStateChanged {
         timestamp: u64,
-        state: Value,
-        initiator: UserId
+        state: CanvasState,
+        initiatorId: UserId,
     },
+}
+
+impl TryInto<Msg> for &CanvasEvents {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<Msg, Self::Error> {
+        serde_json::to_string(self)
+    }
 }

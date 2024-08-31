@@ -2,10 +2,9 @@ use crate::authentication::{self, JWTClaims};
 use crate::canvas::store::GetUserClaimsMessage;
 use crate::templates;
 use crate::userstore::{GetUserMessage, RegisterUser, RegisterUserMessage};
-use actix::dev::Request;
 use actix::Recipient;
 use actix_web::{cookie::Cookie, error, get, post, web, HttpResponse, Responder, Result};
-use actix_web::{middleware, HttpMessage, HttpRequest};
+use actix_web::{HttpMessage, HttpRequest};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -59,10 +58,12 @@ async fn login(
         let password_check = argon.verify_password(login_form.password.as_bytes(), &parsed_hash);
 
         if password_check.is_ok() {
-
-            let claims = canvas_claims_addr.send(GetUserClaimsMessage {
-                user_id: user.id.clone(),
-            }).await.map_err(|_| error::ErrorInternalServerError("Failed to login, try again later"))?; 
+            let claims = canvas_claims_addr
+                .send(GetUserClaimsMessage {
+                    user_id: user.id.clone(),
+                })
+                .await
+                .map_err(|_| error::ErrorInternalServerError("Failed to login, try again later"))?;
             //TODO: consider logging alterting system, if this error occurs, something is very wrong
 
             let jwt_token = authentication::generate_jwt_token(user.into(), claims)?;
@@ -124,9 +125,7 @@ async fn register(
 }
 
 #[post("/logout")]
-async fn logout_handler(
-    request: HttpRequest,
-) -> impl Responder {
+async fn logout_handler(request: HttpRequest) -> impl Responder {
     let mut redirect_response = templates::builder_redirect_to_static("login", &request);
     // redirect_response.
     let mut cookie = Cookie::build(AUTH_COOKIE_NAME, "")
@@ -142,20 +141,24 @@ async fn logout_handler(
 
 async fn home_request_handler(
     request: HttpRequest,
-    handlebars: web::Data<Handlebars<'_>>
+    handlebars: web::Data<Handlebars<'_>>,
 ) -> actix_web::Result<impl Responder> {
+    let user_data = request.extensions().get::<JWTClaims>().map_or(
+        Err(error::ErrorUnauthorized("Failed to authenticate")),
+        |claims| Ok(claims.clone()),
+    )?;
 
-    let user_data= request.extensions()
-        .get::<JWTClaims>()
-        .map_or(
-            Err(error::ErrorUnauthorized("Failed to authenticate")),
-            |claims| Ok(claims.clone()))?;
-
-    let canvas: Vec<_> = user_data.can.iter().map(| claim | json!({
-        "name": claim.n,
-        "id": claim.c,
-        "access_level": claim.r,
-    })).collect();
+    let canvas: Vec<_> = user_data
+        .can
+        .iter()
+        .map(|claim| {
+            json!({
+                "name": claim.n,
+                "id": claim.c,
+                "access_level": claim.r,
+            })
+        })
+        .collect();
 
     let template_data = json!({
         "id": user_data.uid,
@@ -165,19 +168,15 @@ async fn home_request_handler(
 
     handlebars
         .render("home", &template_data)
-        .map(| rendered_page | {
-            web::Html::new(rendered_page)
-        })
-        .map_err(|_| {
-            error::ErrorInternalServerError("Failed to render home")
-        })
+        .map(web::Html::new)
+        .map_err(|_| error::ErrorInternalServerError("Failed to render home"))
 
     // match rendered {
-        // Ok(rendered) => Ok(HttpResponse::Ok().body(rendered)),
-        // Err(e) => {
-            // eprintln!("Failed to render /home template {}", e);
-            // Err(HttpResponse::InternalServerError("Failed to display home").finish())
-        // }
+    // Ok(rendered) => Ok(HttpResponse::Ok().body(rendered)),
+    // Err(e) => {
+    // eprintln!("Failed to render /home template {}", e);
+    // Err(HttpResponse::InternalServerError("Failed to display home").finish())
+    // }
     // }
 }
 

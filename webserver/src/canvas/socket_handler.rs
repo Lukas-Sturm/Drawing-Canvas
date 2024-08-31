@@ -10,15 +10,21 @@ use futures_util::{
 };
 use tokio::{sync::mpsc, time::interval};
 
-use crate::{authentication::JWTUser, canvas::server::CanvasSocketServerHandle, userstore::UserId};
+use crate::{authentication::JWTUser, canvas::server::CanvasSocketServerHandle};
 
-use super::store::{CanvasClaim, CanvasId};
+use super::store::CanvasId;
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "type")]
+struct RegisterSession {
+    session: String,
+}
 
 /// Echo text & binary messages received from the client, respond to ping messages, and monitor
 /// connection health to detect network issues and free up resources.
@@ -28,19 +34,12 @@ pub async fn start_canvas_websocket_connection(
     msg_stream: actix_ws::MessageStream,
     canvas_id: CanvasId,
     user: JWTUser,
-    claim: CanvasClaim
 ) {
     let mut last_heartbeat = Instant::now();
     let mut interval = interval(HEARTBEAT_INTERVAL);
 
     let (message_tx, mut message_rx) = mpsc::unbounded_channel();
-    chat_server.connect(
-        message_tx,
-        canvas_id.clone(),
-        user.id.clone(),
-        user.username.clone(),
-        claim.r
-    ).await;
+    let mut client_session_id: Option<String> = None;
 
     let msg_stream = msg_stream
         .max_frame_size(128 * 1024)
@@ -59,28 +58,47 @@ pub async fn start_canvas_websocket_connection(
 
         match select(messages, tick).await {
             // commands & messages received from client
-            Either::Left((Either::Left((Some(Ok(msg)), _)), _)) => {
-                match msg {
-                    AggregatedMessage::Ping(bytes) => {
-                        last_heartbeat = Instant::now();
-                        session.pong(&bytes).await.unwrap();
-                    }
-
-                    AggregatedMessage::Pong(_) => {
-                        last_heartbeat = Instant::now();
-                    }
-
-                    AggregatedMessage::Text(text) => {
-                        process_user_socket_msg(&chat_server, &text, canvas_id.clone(), user.id.clone()).await;
-                    }
-
-                    AggregatedMessage::Binary(_bin) => {
-                        println!("unexpected binary message");
-                    }
-
-                    AggregatedMessage::Close(reason) => break reason,
+            Either::Left((Either::Left((Some(Ok(msg)), _)), _)) => match msg {
+                AggregatedMessage::Ping(bytes) => {
+                    last_heartbeat = Instant::now();
+                    session.pong(&bytes).await.unwrap();
                 }
-            }
+
+                AggregatedMessage::Pong(_) => {
+                    last_heartbeat = Instant::now();
+                }
+
+                AggregatedMessage::Text(text) => {
+                    if let Some(client_session_id) = &client_session_id {
+                        // println!("Received message: {user} in {canvas_id}: {msg}");
+                        let msg = text.trim();
+                        chat_server.broadcast_event(canvas_id.clone(), user.id.clone(), client_session_id.clone(), msg).await;
+                    } else {
+                        let message = serde_json::from_str::<RegisterSession>(&text);
+                        client_session_id = message.map(|message| Some(message.session)).unwrap_or(None);
+                        if let Some(origin) = &client_session_id {
+                            chat_server
+                                .connect(
+                                    message_tx.clone(),
+                                    canvas_id.clone(),
+                                    user.id.clone(),
+                                    user.username.clone(),
+                                    origin.clone(),
+                                )
+                                .await;
+                        } else {
+                            println!("Invalid session message received {text}");
+                            break None;
+                        }
+                    }
+                }
+
+                AggregatedMessage::Binary(_bin) => {
+                    println!("unexpected binary message");
+                }
+
+                AggregatedMessage::Close(reason) => break reason,
+            },
 
             // client WebSocket stream error
             Either::Left((Either::Left((Some(Err(err)), _)), _)) => {
@@ -114,25 +132,11 @@ pub async fn start_canvas_websocket_connection(
             }
         };
     };
-    
-    chat_server.disconnect(canvas_id, user.id.clone());
+
+    if let Some(session_id) = client_session_id {
+        chat_server.disconnect(canvas_id, user.id.clone(), session_id);
+    }
 
     // attempt to close connection gracefully
     let _ = session.close(close_reason).await;
-}
-
-async fn process_user_socket_msg(
-    chat_server: &CanvasSocketServerHandle,
-    // session: &mut actix_ws::Session,
-    text: &str,
-    canvas_id: CanvasId,
-    user_id: UserId,
-) {
-    // strip leading and trailing whitespace (spaces, newlines, etc.)
-    let msg = text.trim();
-
-    println!("Received message: {user_id} in {canvas_id}: {msg}");
-
-    // session.text(response).await.unwrap();
-    chat_server.broadcast_event(canvas_id, user_id, msg).await;
 }

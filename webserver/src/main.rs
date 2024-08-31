@@ -1,8 +1,16 @@
 use actix::prelude::*;
-use actix_web::{middleware::{self, Logger}, web, App, HttpRequest, HttpServer, Responder};
+use actix_web::{
+    middleware::{self},
+    web, App, HttpRequest, HttpServer, Responder,
+};
 use argon2::Argon2;
-use canvas::{server::CanvasSocketServer, store::{AddUserToCanvasMessage, CanvasStore, CreateCanvasMessage, GetCanvasMessage, GetUserClaimsMessage}};
-use env_logger::Env;
+use canvas::{
+    server::CanvasSocketServer,
+    store::{
+        AddUserToCanvasMessage, CanvasStore, CreateCanvasMessage, GetCanvasMessage,
+        GetUserClaimsMessage, UpdateCanvasStateMessage,
+    },
+};
 use futures_util::try_join;
 use handlebars::{DirectorySourceOptions, Handlebars};
 use persistence::EventLogPersistenceJson;
@@ -42,7 +50,7 @@ async fn main() -> std::io::Result<()> {
     let user_event_log = EventLogPersistenceJson::new("user_eventlog.jsonl")
         .expect("Failed to create or load user event log");
     let (saved_events, user_event_log) = user_event_log
-        .to_actor()
+        .into_actor()
         .expect("Failed to read user event log");
     let user_event_persistor_recipient = user_event_log.start().recipient();
     // use recipients to allow for easier swapping of implementations
@@ -52,13 +60,12 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(user_store_addr.clone().recipient::<RegisterUserMessage>());
     let get_user_receipient = web::Data::new(user_store_addr.recipient::<GetUserMessage>());
 
-
     // Canvas Store Setup
     // Same constraints as for the user store
     let canvas_event_log = EventLogPersistenceJson::new("canvas_eventlog.jsonl")
         .expect("Failed to create or load canvas event log");
     let (saved_events, canvas_event_log) = canvas_event_log
-        .to_actor()
+        .into_actor()
         .expect("Failed to read canvas event log");
     let canvas_event_persistor_recipient = canvas_event_log.start().recipient();
     let canvas_store_addr = CanvasStore::new(canvas_event_persistor_recipient, saved_events)
@@ -67,23 +74,28 @@ async fn main() -> std::io::Result<()> {
 
     let create_canvas_receipient =
         web::Data::new(canvas_store_addr.clone().recipient::<CreateCanvasMessage>());
-    let get_user_claims_receipient =
-        web::Data::new(canvas_store_addr.clone().recipient::<GetUserClaimsMessage>());
-    let add_user_to_canvas_receipient =
-        web::Data::new(canvas_store_addr.clone().recipient::<AddUserToCanvasMessage>());
+    let get_user_claims_receipient = web::Data::new(
+        canvas_store_addr
+            .clone()
+            .recipient::<GetUserClaimsMessage>(),
+    );
+    let add_user_to_canvas_receipient = web::Data::new(
+        canvas_store_addr
+            .clone()
+            .recipient::<AddUserToCanvasMessage>(),
+    );
     let get_canvas_recipient =
         web::Data::new(canvas_store_addr.clone().recipient::<GetCanvasMessage>());
-
+    let update_canvas_state_recipient =
+        web::Data::new(canvas_store_addr.clone().recipient::<UpdateCanvasStateMessage>());
 
     // Argon Setup
     let argon_params = argon2::Params::new(19 * 1024, 3, 2, None).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::Other, "Failed to create argon2 params")
     })?;
 
-
     // Logging
     // env_logger::init_from_env(Env::default().default_filter_or("debug"));
-
 
     // Templating
     // Handlebar stores compiled templates, so it needs to be shared between threads
@@ -101,11 +113,10 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(handlebars)
     };
 
-
     // Websocket Handler
-    let (canvas_server, canvas_server_handle) = CanvasSocketServer::new(get_canvas_recipient.into_inner());
+    let (canvas_server, canvas_server_handle) =
+        CanvasSocketServer::new(get_canvas_recipient.into_inner());
     let canvas_server = tokio::spawn(canvas_server.run());
-
 
     // https://tokio.rs/tokio/tutorial/shared-state#on-using-stdsyncmutex
 
@@ -128,6 +139,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(create_canvas_receipient.clone())
             .app_data(get_user_claims_receipient.clone())
             .app_data(add_user_to_canvas_receipient.clone())
+            .app_data(update_canvas_state_recipient.clone())
             .app_data(web::Data::new(canvas_server_handle.clone())) // TODO: Example uses this, research how this differs from cloning web::Data, webdata uses arc internally, maybe .clone on Arc also clones the inner value ?
             .app_data(argon2)
             .configure(user::user_service)

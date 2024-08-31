@@ -14,15 +14,15 @@ pub static TEMPLATES_DIR: &str = "../.templates/";
 pub static TEMPLATES_DIR: &str = "../dist/.templates/";
 
 pub async fn serve_index(_: &HttpRequest) -> Result<NamedFile> {
-    println!("Serving index from: {}", INDEX_FILE);
+    // println!("Serving index from: {}", INDEX_FILE);
     Ok(NamedFile::open_async(INDEX_FILE).await?)
 }
 
 pub async fn serve_template(template: &str, _: &HttpRequest) -> Result<NamedFile> {
-    println!(
-        "Serving template from: {}",
-        TEMPLATES_DIR.to_owned() + template
-    );
+    // println!(
+    //     "Serving template from: {}",
+    //     TEMPLATES_DIR.to_owned() + template
+    // );
     Ok(NamedFile::open_async(TEMPLATES_DIR.to_owned() + template).await?)
 }
 
@@ -38,8 +38,12 @@ pub fn builder_redirect_to_static(route_name: &str, req: &HttpRequest) -> HttpRe
         .take()
 }
 
-pub fn builder_redirect<U, I>(route_name: &str, req: &HttpRequest, elements: U) -> HttpResponseBuilder
-where 
+pub fn builder_redirect<U, I>(
+    route_name: &str,
+    req: &HttpRequest,
+    elements: U,
+) -> HttpResponseBuilder
+where
     U: IntoIterator<Item = I>,
     I: AsRef<str>,
 {
@@ -53,7 +57,7 @@ where
 }
 
 pub fn redirect_to<U, I>(route_name: &str, req: &HttpRequest, elements: U) -> HttpResponse
-where 
+where
     U: IntoIterator<Item = I>,
     I: AsRef<str>,
 {

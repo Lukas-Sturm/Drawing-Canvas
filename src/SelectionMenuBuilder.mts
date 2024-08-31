@@ -173,6 +173,8 @@ export class SelectionMenuBuilder {
 
     protected registerShapeEventListeners() {
         SHAPE_EVENT_BUS.addEventListener('ShapeSelected', (event) => {
+            // only track shapes from the current client session
+            if (event.origin !== this.currentEventOrigin) return
             this.selectedShapes.add(event.shapeId)
         })
 
@@ -182,6 +184,8 @@ export class SelectionMenuBuilder {
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeDeselected', (event) => {
+            // only track shapes from the current client session
+            if (event.origin !== this.currentEventOrigin) return
             this.selectedShapes.delete(event.shapeId)
         })
 

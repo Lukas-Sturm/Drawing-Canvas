@@ -72,7 +72,7 @@ export type ShapeEventDefinitions = {
 
 // ---------------------
 // Helper Functions
-
+const sessionOrigin = generateOrigin()
 function generateOrigin() {
     const userid = document.querySelector('script[data-user-id]')?.getAttribute('data-user-id')
 
@@ -83,7 +83,9 @@ function generateOrigin() {
         return (Math.random() + 1).toString(36).substring(7)
     }
 
-    return userid + (Math.random() + 1).toString(36).substring(7)
+    const origin = userid + (Math.random() + 1).toString(36).substring(7)
+    console.log('Generated Origin:', origin)
+    return origin
 }
 
 function sendShapeAddedEvent(origin: string, shape: Shape) {
@@ -149,5 +151,5 @@ export const EventHelper = {
     sendShapeDeselectedEvent,
     sendShapeZChangedEvent,
     sendShapeChangedEvent,
-    generateOrigin
+    generateOrigin: () => sessionOrigin
 }

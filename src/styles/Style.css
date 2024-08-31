@@ -17,6 +17,16 @@
   display: inline;
 }
 
+.user-list-item {
+  --user-color: #FF3D00;
+}
+
+.user-list-item::marker {
+  width: 20px;
+  height: 40px;
+  color: var(--user-color);
+}
+
 /* https://cssloaders.github.io/ */
 .loader {
   width: 24px;

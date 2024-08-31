@@ -1,9 +1,9 @@
+use crate::canvas::store::{AccessLevel, CanvasId};
+use crate::persistence::{self, PersistEventMessage};
 use actix::prelude::*;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::persistence::{self, PersistEventMessage};
-use crate::canvas::store::{AccessLevel, CanvasId};
 
 pub const USER_ID_ALPHABET: [char; 16] = [
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f',
@@ -241,7 +241,6 @@ impl Handler<RegisterUserMessage> for UserStore {
                         error
                     })
                 }),
-        
         ))
     }
 }
@@ -253,25 +252,25 @@ pub struct GetUserMessage {
     pub user_id: Option<UserId>,
 }
 
-
 impl Handler<GetUserMessage> for UserStore {
     type Result = Option<User>;
 
     fn handle(&mut self, msg: GetUserMessage, _: &mut Self::Context) -> Self::Result {
         if let Some(user_id) = msg.user_id {
-            return self.users_id_lookup.get(&user_id).map(Clone::clone);
+            return self.users_id_lookup.get(&user_id).cloned();
         }
 
-        msg.username_email.map(| username_email | {
-            self.users_email_lookup
-                .get(&username_email) // check using email
-                .map(|id| {
-                    self.users_id_lookup
-                        .get(id)
-                        .map(|user| Some(user.clone()))
-                        .unwrap_or(None)
-                })
-                .unwrap_or_else(|| // not found using email
+        msg.username_email
+            .map(|username_email| {
+                self.users_email_lookup
+                    .get(&username_email) // check using email
+                    .map(|id| {
+                        self.users_id_lookup
+                            .get(id)
+                            .map(|user| Some(user.clone()))
+                            .unwrap_or(None)
+                    })
+                    .unwrap_or_else(|| // not found using email
                 self.users_username_lookup
                     .get(&username_email) // now check the username
                     .map(|id|
@@ -281,6 +280,7 @@ impl Handler<GetUserMessage> for UserStore {
                             .unwrap_or(None)
                     )
                     .unwrap_or(None)) // not found
-        }).unwrap_or_default()
+            })
+            .unwrap_or_default()
     }
 }

@@ -55,6 +55,10 @@ Access Level kann live geändert werden
 
 Alles wird als event abgespeichert
 
+client kann zustand nicht validieren bzw gibt es keinen schutz vor desynchronasizion
+
+Anwendung nicht Ctrl+C sicher
+
 # Blatt 4
 ## Benutzerverwaltung
 - Passwort verwendet Argon2, mit passend sicheren Parametern

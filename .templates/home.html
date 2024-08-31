@@ -1,9 +1,5 @@
-<h1>Canvas List</h1>
-
-Hallo {{name}}
-
+<h1>Canvas List - {{name}}</h1>
 <ul>
-
     {{#each canvas}}
     <li>
         <a data-spa-request href="/canvas/{{this.id}}">{{this.name}} as {{this.access_level}}</a>

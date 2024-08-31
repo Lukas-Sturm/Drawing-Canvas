@@ -19,6 +19,7 @@ export class SelectionTool implements Tool {
     protected currentEventOrigin = EventHelper.generateOrigin()
 
     protected shapeStore = new ArrayShapeStore<CanvasShape>()
+    protected clientSelectedShapes: string[] = []
     protected selectedShapes: string[] = []
     protected lastCycleSelectedShape?: CanvasShape = undefined
     protected mouseMoveStart: Point2D = { x: 0, y: 0 }
@@ -88,8 +89,10 @@ export class SelectionTool implements Tool {
             this.shapeStore.getShapes()
                 .reverse()
                 .filter(shape => shape.toShape().temporary === false) // do not select temporary shapes
+                // .filter(shape => Array.from(this.selectedShapes.values()).findIndex((ids) => ids.findIndex((id) => id == shape.id))) // TODO: remove
+                .filter(shape => this.selectedShapes.findIndex(id => id === shape.id) === -1)
                 .filter(shape => shape.checkSelection(x, y))
-        const selectedShapes = this.selectedShapes
+        const selectedShapes = this.clientSelectedShapes
 
         if (e.altKey) {
             this.handleAltClick(shapesUnderCursor, selectedShapes, e.ctrlKey)
@@ -100,7 +103,7 @@ export class SelectionTool implements Tool {
         }
 
         // reset lastCycleSelectedShape if selection gets cancelled
-        if (this.selectedShapes.length === 0) {
+        if (this.clientSelectedShapes.length === 0) {
             this.lastCycleSelectedShape = undefined
         }
     }
@@ -198,29 +201,29 @@ export class SelectionTool implements Tool {
     }
 
     protected selectShape(shape: CanvasShape): this {
-        this.selectedShapes.push(shape.id)
+        this.clientSelectedShapes.push(shape.id)
         EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, this.selectionOptions)
         return this
     }
 
     protected unselectShape(shape: CanvasShape): this {
-        this.selectedShapes = this.selectedShapes.filter(id => id !== shape.id)
+        this.clientSelectedShapes = this.clientSelectedShapes.filter(id => id !== shape.id)
         EventHelper.sendShapeDeselectedEvent(this.currentEventOrigin, shape.id)
         return this
     }
 
     protected resetSelection(): this {
-        for (const shapeId of this.selectedShapes) {
+        for (const shapeId of this.clientSelectedShapes) {
             EventHelper.sendShapeDeselectedEvent(this.currentEventOrigin, shapeId)
         }
-        this.selectedShapes = []
+        this.clientSelectedShapes = []
         return this
     }
 
     static movedCounter = 0
 
     protected moveSelectedShapes(distance: Point2D): void {
-        for (const shapeId of this.selectedShapes) {
+        for (const shapeId of this.clientSelectedShapes) {
             const canvasShape = this.shapeStore.getShape(shapeId)
             if (!canvasShape) {
                 console.warn("Shape not found in store", shapeId)
