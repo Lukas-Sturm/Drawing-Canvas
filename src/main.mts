@@ -1,18 +1,50 @@
-// Note
-// This is a simple SPA implementation
-// It uses fetch to load content from the server
-// It allows executing scripts in the loaded content
-// BUT the script can't use DOMContentLoaded event because it's already fired
-// Possibly the loader could wait for all images scripts etc to be fully loaded. Then trigger a custom event, scripts need to be aware of this event
-//   -->  This is now implemented
-// WebComponents also don't realy work because they need to be defined before the content is loaded, but because the Script is executed after the content is loaded, the WebComponents are not defined yet
-//   -->  Scripts that use WebComponents need to listen to the AJAXContentLoaded event and then create the WebComponents and not rely on the provided DOM
 
-// Loaded CSS gets removed if the Node is removed -> Not
+// Simple SPA implementation
+
+// All forms and anchors with data-spa-request are fetched using ajax
+// if data-spa-target is set, the content is loaded into the element with the id of data-spa-target
+//    popovers are a special target, they get shown after the content is loaded and keep visible for a short time
+// for a get or a post resulting in a redirect the history state is updated with the new url
+// if the browser back button is pressed (and the browser emits a popstate event) the content is simply refetched
+// once content is loaded the implementation searches for script tags and replaces them with new script tags to execute them
+//    this is because the spec does not execute scipts when inserted via innerHTML
+// once all scripts are loaded a custom event is dispatched to notify the scripts that they are loaded
+
 import './styles/Style.css'
 
-document.addEventListener('DOMContentLoaded', setupSPA)
+// initialisation of the spa "state"
+document.addEventListener('DOMContentLoaded', async () =>{
+    const contentElement = document.getElementById('content')
+    if (!contentElement) {
+        console.error('No content element found')
+        return
+    }
 
+    let initialPath = window.location.pathname
+    // internal redirect to home if path is /
+    if (initialPath === '/') {
+        initialPath = '/home'
+    }
+
+    // initial load
+    await fetchAndLoad(contentElement, initialPath)
+
+    registerSPAOverides(contentElement)
+
+    // handle back button
+    window.addEventListener('popstate', async (event) => {
+        if (event.state.url) {
+            await fetchAndLoad(contentElement, event.state.url)
+        }
+    })
+})
+
+/**
+ * Fetches the content
+ * and replaces the content of the contentElement
+ * or displays a popover if the contentElement has the popover attribute
+ * if the response is not 200, an error popover is shown
+ */
 async function fetchAndLoad(contentElement: HTMLElement, url: string, options?: RequestInit) {
     const base = { method: 'GET', cache: 'no-cache', headers: { 'X-SPA-Request': 'true' } }
     const data = Object.assign(base, options)
@@ -69,39 +101,11 @@ async function fetchAndLoad(contentElement: HTMLElement, url: string, options?: 
     }
 }
 
-async function setupSPA() {
-
-    console.log('Setting up SPA')
-
-    const contentElement = document.getElementById('content')
-    if (!contentElement) {
-        console.error('No content element found')
-        return
-    }
-
-    let initialPath = window.location.pathname
-    // internal redirect to home if path is /
-    if (initialPath === '/') {
-        initialPath = '/home'
-    }
-
-    // initial load
-    await fetchAndLoad(contentElement, initialPath)
-
-    registerSPAOverides(contentElement)
-
-    window.addEventListener('popstate', async (event) => {
-        console.log('SPA back event', event.state)
-        if (event.state.url) {
-            await fetchAndLoad(contentElement, event.state.url)
-        }
-    })
-}
-
+/**
+ * Registers the AJAX handlers for forms and anchors
+ * this is done by listening to the submit and click events
+ */
 function registerSPAOverides(contentElement: HTMLElement) {
-
-    console.log('Registering SPA Overrides')
-
     // registers AJAX handlers for forms
     document.addEventListener('submit', async (event) => {
         const sourceElement = event.target
@@ -150,6 +154,10 @@ function registerSPAOverides(contentElement: HTMLElement) {
     })
 }
 
+/**
+ * Checks if the sourceElement has a data-spa-target attribute
+ * Returns the target element if it exists, otherwise the sourceElement
+ */
 function updateTarget(target: HTMLElement, sourceElement: HTMLElement): HTMLElement {
     const alternativeTarget = sourceElement.getAttribute('data-spa-target')
     if (alternativeTarget) {
@@ -161,15 +169,23 @@ function updateTarget(target: HTMLElement, sourceElement: HTMLElement): HTMLElem
     return target
 }
 
+/**
+ * Type guard to check if an element is an HTMLElement and has a data-spa-request attribute
+ */
 function eventAjaxRequestEnabled(element: EventTarget | null): element is HTMLElement {
     return element instanceof HTMLElement && element.getAttribute('data-spa-request') !== null
 }
 
+// updates the history state
 function updateHistoryState(url: string) {
     window.history.pushState({ url }, '', url)
 }
 
-// replaces content and properly executes scripts
+/**
+ * Replaces the content of the contentContainer with the given text
+ * if loadScripts is true, all script tags are replaced with new script tags
+ * resolves with a promise that resolves when all scripts are loaded
+ */
 function replaceContent(contentContainer: HTMLElement, loadScripts: boolean = true): (text: string) => Promise<Promise<void[]>> {
     return (text: string) => {
         return new Promise((resolve) => {

@@ -1,6 +1,6 @@
 import baseDrawingStyles from '../styles/DrawingCanvas.css?inline'
 import {Menu, MenuItem, SeparatorMenuItem} from './Menu.mjs'
-import {ContextMenuItemFactory, CanvasShape} from "../types.mjs"
+import {ContextMenuItemFactory, CanvasShape, MyMouseEvent} from "../types.mjs"
 import {ToolArea} from "./ToolArea.mjs"
 import {convertShape} from "../CanvasShapes.mjs"
 import {ArrayShapeStore} from "../ShapeStore.mjs"
@@ -206,8 +206,12 @@ export class DrawingCanvas extends HTMLElement {
             contextMenu.show(e.clientX, e.clientY)
         })
 
-        const debounce: {e: MouseEvent, delta: number, timeout: number | undefined} = {
-            e: new MouseEvent('mousemove'),
+        // Debounce mouse events
+        // Allows for fine movement, but doesn't spam the event bus
+        const debounce: {e: MyMouseEvent, x: number, y: number, delta: number, timeout: number | undefined} = {
+            e: { buttons: 0, altKey: false, ctrlKey: false },
+            x: 0,
+            y: 0,
             delta: 0,
             timeout: undefined
         }
@@ -216,8 +220,16 @@ export class DrawingCanvas extends HTMLElement {
         this.selectionCanvas.addEventListener('mousemove', (e) => {
             if (e.button !== 0) return
 
-            debounce.delta += Math.abs(e.offsetX - debounce.e.offsetX) + Math.abs(e.offsetY - debounce.e.offsetY)
-            debounce.e = e
+            debounce.delta += Math.abs(e.offsetX - debounce.x) + Math.abs(e.offsetY - debounce.y)
+            // this requires a custom event
+            // firefox reuses Event Objects, so we can't store it, we need to copy required values
+            debounce.e = {
+                buttons: e.buttons,
+                altKey: e.altKey,
+                ctrlKey: e.ctrlKey
+            }
+            debounce.x = e.offsetX
+            debounce.y = e.offsetY
 
             if (debounce.delta > 20) {
                 this.toolArea.getSelectedTool()?.handleMouseMove(e.offsetX, e.offsetY, e)
@@ -231,7 +243,7 @@ export class DrawingCanvas extends HTMLElement {
             // this allows persice mouse movement, sub debounce movement
             if (debounce.timeout) return
             debounce.timeout = window.setTimeout(() => {
-                this.toolArea.getSelectedTool()?.handleMouseMove(debounce.e.offsetX, debounce.e.offsetY, debounce.e)
+                this.toolArea.getSelectedTool()?.handleMouseMove(debounce.x, debounce.y, debounce.e)
                 debounce.delta = 0
                 debounce.timeout = undefined
             }, 80)
@@ -257,4 +269,4 @@ export class DrawingCanvas extends HTMLElement {
     }
 }
 
-customElements.define('hs-drawing-canvas', DrawingCanvas)
+if (!customElements.get('hs-drawing-canvas')) customElements.define('hs-drawing-canvas', DrawingCanvas)

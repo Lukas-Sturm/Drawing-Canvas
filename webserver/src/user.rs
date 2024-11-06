@@ -13,6 +13,8 @@ use handlebars::Handlebars;
 use serde::Deserialize;
 use serde_json::json;
 
+/// API Handler for all endpoints related to user management
+
 pub const JWT_SECRET: &str = "secret";
 pub const AUTH_COOKIE_NAME: &str = "auth-token";
 
@@ -170,16 +172,9 @@ async fn home_request_handler(
         .render("home", &template_data)
         .map(web::Html::new)
         .map_err(|_| error::ErrorInternalServerError("Failed to render home"))
-
-    // match rendered {
-    // Ok(rendered) => Ok(HttpResponse::Ok().body(rendered)),
-    // Err(e) => {
-    // eprintln!("Failed to render /home template {}", e);
-    // Err(HttpResponse::InternalServerError("Failed to display home").finish())
-    // }
-    // }
 }
 
+/// register user service with actix-web
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(login)
         .service(login_page)

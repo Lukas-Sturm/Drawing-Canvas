@@ -1,9 +1,3 @@
-/*.tools {*/
-/*    width: 100px;*/
-/*    float: left;*/
-/*    padding: 5px;*/
-/*}*/
-
 li {
     padding: 5px;
     list-style: none;
@@ -17,4 +11,13 @@ li:hover {
 li.marked {
     background-color: cornflowerblue;
     color: white;
+}
+
+.disabled {
+    color: gray;
+}
+
+.disabled:hover {
+    color: gray;
+    cursor: default;
 }

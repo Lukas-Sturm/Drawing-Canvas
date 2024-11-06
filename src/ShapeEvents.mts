@@ -74,7 +74,7 @@ export type ShapeEventDefinitions = {
 // Helper Functions
 const sessionOrigin = generateOrigin()
 function generateOrigin() {
-    const userid = document.querySelector('script[data-user-id]')?.getAttribute('data-user-id')
+    const userid = document.querySelector('#canvas-container[data-user-id]')?.getAttribute('data-user-id')
 
     // TODO: consider using time, to avoid collisions
 

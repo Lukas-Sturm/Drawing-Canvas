@@ -8,6 +8,12 @@ use futures_util::{future::LocalBoxFuture, FutureExt, TryFutureExt};
 use regex::Regex;
 use std::future::{ready, Ready};
 
+/// Actix Middleware
+/// Handles SPA logic
+/// Every request that is not for a websocket or asset is redirected to / to serve the SPA
+/// Once the SPA is loaded, the SPA will add a header to the request to indicate that it is a SPA request
+/// This is not a perfect solution, but it works for this demo application
+
 pub struct SPAService;
 
 impl<S, B> Transform<S, ServiceRequest> for SPAService

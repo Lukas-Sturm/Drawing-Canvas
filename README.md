@@ -1,9 +1,10 @@
-# Software Systeme
+# Drawing Canvas
 
-## Allgemein
-Multiuser Zeichenprogramm basierend auf Eventsourcing.  
+Webbasiertes multiuser Zeichenprogramm basierend auf Eventsourcing.
+
+Bei diesem Projekt handelt es sich um eine Abgabe für das Fach Software Systeme.  
 Plain Typescript/JS für Frontend, Actix Web für Backend.  
-Actix basiert auf dem Actor Model, dies wird auch für einige Komponenten verwendet.
+Actix basiert auf dem Actor Model, dies wird auch für das Eventsourcing verwendet. Der Webserver ist möglichst modular aufgebaut. Das Datenbankmodell kann flexibel getauscht werden.  
 
 ## Starten
 Entweder per Vite um auch Source Maps zu generieren
@@ -14,53 +15,60 @@ In einem zweiten Terminal im `/webserver` Ordner
 
 ---
 
-Alternativ kann einfach der Webserver mit "compiliertem" Javascript verwendet werden. `/dist` enthält das production Bundle von Vite und kann ohne Installation verwendet werden.  
-Im `/webserver` Ordner
+Alternativ kann ein Production Build erstellt werden.
+- `npm run build` Typescript muss global installiert sein, alternativ zuerst ein `npm install`
 - `cargo run` 
 
-# Blatt 6
-## SPA
+# Abgaben:
+
+## Blatt 6
+### SPA
 - Der Webserver checkt Requests die nicht an /assets/ gehen, ob diese einen speziellen Header haben
-  - ist dies nicht der Fall wird der Request an das root Verzeichnis / intern redirected, der client lädt dann selbst die resourcen nach.
-    - alternativ könnte der webserver hier auch mit einer hydrierten gerenderten Seite bereits antworten
-  - ist der Header gesetzt, wird eine Partielle gerenderte Seite zurückgegeben
-  - Der Nachteil an der aktuellen Implementierung ist das URL Query handling. Da keine Querys in der Anwendung verwendet werden, wurde hier kein robustes System entwickelt. (Redirects beachten keine Query Parameter)
-- Die Funktion orientiert sich an Bibliothek HTMX und dem Konzept der Hypermedia Driven Applications  
+  - ist dies nicht der Fall wird der Request an das root Verzeichnis / intern redirected, der client lädt dann selbst die Ressourcen nach.
+  - alternativ könnte der Webserver hier auch mit einer hydrierten gerenderten Seite bereits antworten 
+  - ist der Header gesetzt, werden nur die benötigten Teile der HTML Seite zurückgegeben 
+  - Der Nachteil an der aktuellen Implementierung ist das URL Query Handling. Da keine Querys in der Anwendung verwendet werden, wurde hier kein robustes System entwickelt. (Redirects beachten keine Query Parameter)
+- Die Funktion orientiert sich an der Bibliothek HTMX und dem Konzept der Hypermedia Driven Applications
   - https://htmx.org/essays/hypermedia-driven-applications/
-- Der Websocket Ansatz wurde nicht gewählt, da die SPA bereits für Blatt 4 entwickelt wurde und ein umbau mehr Zeit gekostet hätte :) (zumal Websocket Handling in Actix etwas komplexer ist als in anderen Sprachen/Frameworks)
-## Canvas Websocket
-- REWRITE: Events werden nicht validiert, es gibt wenig error handlig
-- REWRITE: Da ins SPA der Header verwendet wrid, die browser websocket api jedoch nicht erlaubt den initialen http request, vor dem upgrade zu steuern, kann kein header gesetzt werden.
-  - aus diesem grund gibt es eine Ausnahme regel wie für assets aber mit einem genauen regex für canvas websockets
-## Event Store
-- REWRITE: Eventes werden persistiert
-  - snapshots
-  - versioning
+- Der Websocket Ansatz wurde nicht gewählt, da die SPA bereits für Blatt 4 entwickelt wurde und ein Umbau mehr Zeit gekostet hätte :) (zumal Websocket Handling in Actix etwas komplexer ist als in anderen Sprachen/Frameworks)
+  - Jedoch wäre die Implementierung über Websockets wesentlich einfacher gewesen
 
-Verwendet reine Events auf bus,
-Nur eine komponente neu, die empfagenen events im client weitergibt und userliste anzeigt
+### Canvas Websocket
+- Der Websocket sendet die gleichen Events wie der Client intern selbst auch
+- Der Canvas besitzt einen eigenen Websocket, mit dem sich die Clients verbinden 
+- Die Anwendung erlaubt einem User mehrere Sessions aktiv zu betreiben
+  - jede Session wird wie ein eigener User behandelt (keine shared selection)
+- Die Anwendung persistiert alle Daten
+  - Hier wurde ein simples event sourcing basiertes System gebaut
+  - jedoch sehr simpel (kein versioning oder rollbacks etc.)
+  - die Events dienen hauptsächlich einem einfachen Laden und Speichern des Zustandes
+  - Beim Laden der Events werden diese sporadisch validiert
+    - es gibt keine selected shapes oder connected users, nachdem der Server mit Ctrl+C beendet wurde
+- Die Anwendung überwacht die Rechte aller Benutzer
+  - Rechte können live geändert werden
+- Wird ein Event vom Server nicht akzeptiert, wird das dem Client nicht mitgeteilt
+  - Dieser desynchronisiert dann (der "offizielle" Client sendet jedoch nie Events, wenn er nicht darf)
+  - Es gibt keinen Mechanismus, mit dem der Client den Zustand des Canvas mit dem Server vergleichen kann
 
-Problem, mögliche Memory leaks, wie verhält sich JVM mit dem neuen laden von Komponenten usw
-Eventlistener bleiben bestehen!!
+### JWT
+- Das Arbeiten mit den JWT als Session Storage ist umständlich, diese sind auch nicht als solche gedacht
+- Dennoch wurde starker Gebrauch von ihnen gemacht, die Anwendung speichert allen State in den JWT
+  - Nur der erste User der ein Canvas öffnet, löst im Websocket Server ein Laden in der "DB" (CanvasStore) aus
+- Das Token wird alle 30 Sekunden invalidiert
+  - der Refresh passiert automatisch in einer Middleware
+  - Aktuell wird ein Refresh immer erlaubt
+    - Das ist schlecht, eigentlich sollte hier ein Verfahren angewandt werden, um zu überprüften, ob der Refresh erlaubt ist oder nicht. Jedoch für diese Anwendung zu viel Aufwand und nicht Teil der Aufgabe
+- **Das heißt, es kann unter Umständen 30-60 Sekunden dauern, bis die Anwendung auf eine Anfrage reagiert bzw. diese nicht abblockt**
 
-Nur String verwendet, nicht sehr auf Speicher effizienz geachtet, viel clones
+### Rust
+- Für den Server wurde Rust verwendet
+- Hierbei wurde der Speicher nicht optimiert
+  - viele copy :)  
+- Error Handling ist eher schlecht
+  - Keine Custom Errors oder Error pages 
 
-Moveevent debounve
-
-Ein Problem mit änderungen an structs für stores
-
-Firefox 125+ benötigt
-
-Access Level kann live geändert werden
-
-Alles wird als event abgespeichert
-
-client kann zustand nicht validieren bzw gibt es keinen schutz vor desynchronasizion
-
-Anwendung nicht Ctrl+C sicher
-
-# Blatt 4
-## Benutzerverwaltung
+## Blatt 4
+### Benutzerverwaltung
 - Passwort verwendet Argon2, mit passend sicheren Parametern
   - benötigt kein extra Salting, da Argon2 das bereits macht
   - Es wurde kein zusätzlicher Pepper verwendet
@@ -80,8 +88,8 @@ Anwendung nicht Ctrl+C sicher
   - Problem, rechteupdates werden nicht in JWT wiedergespiegelt, wenn diese nicht erneuert wird.
     - Lösung: TBD
 
-# Blatt 3
-## Event Sourcing
+## Blatt 3
+### Event Sourcing
 - Shapes sind nun einfache reine Objekte
   - Ermöglicht einfaches Serialisieren und Deserialisieren
 
@@ -113,8 +121,8 @@ Anwendung nicht Ctrl+C sicher
   - Zudem gibt es für alle Zustandsänderungen nur ein Event
 
 
-# Blatt 2
-## Meine Lösung für Z - Index
+## Blatt 2
+### Meine Lösung für Z - Index
 Beibehalten des Arrays.  
 Wird die Z-Order geändert, werden die Elemente geshifted und wieder eingefügt.  
 Mithilfe eines Index Lookup Caches, müssen die Shapes nicht in der Liste gesucht werden.  
@@ -124,14 +132,14 @@ Mithilfe eines Index Lookup Caches, müssen die Shapes nicht in der Liste gesuch
 Die Optimierung bringt nicht viel, da die meiste Zeit/Rechenleistung beim Rendern der Shapes verbraucht wird.
 
 
-## Alternative überlegung - Linked List
+### Alternative überlegung - Linked List
 Erste Idee war es eine Linked List zu verwenden, um einfach die Glieder einzufügen und von O(1) Laufzeit beim Einfügen zu profitieren.  
 Shapes werden in der Anwendung so oder so meist iteriert, ein Zugriff von O(n) für das Suchen / direkte Aufrufen wäre also nicht so schlimm.
 
 **Problem:** Implementierung umständlicher als Array Ansatz. Tauschen an sich sogar langsamer als mit Array, da Element erst gesucht werden muss, aber auch hier wäre ein Index Lookup Cache möglich.  
 Bringt auch keine Vorteile, da die meiste Zeit/Rechenleistung beim Rendern der Shapes verbraucht wird.
 
-##  Alternative überlegung - B-Tree
+###  Alternative überlegung - B-Tree
 Verwendung eines Baums, erlaubt schnelles Einfügen und dadurch schnelles Ändern des Z-Index O(log n).  
 
 **Vorteil:** Zu Knoten kann ein rendering Cache gespeichert werden. Idealerweise wird ein selbst balancierender Baum der mehrere Kinder pro Knoten erlaubt verwendet.

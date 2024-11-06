@@ -5,7 +5,10 @@ use serde_json::Value;
 
 use crate::userstore::UserId;
 
-use super::{server::Msg, store::{AccessLevel, CanvasState}};
+use super::{
+    server::Msg,
+    store::{AccessLevel, CanvasState},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Point2D {

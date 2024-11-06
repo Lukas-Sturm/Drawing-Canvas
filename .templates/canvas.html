@@ -1,21 +1,6 @@
-<!-- re used to force the browser to reload the script file -->
-<script type="module" src="/src/canvas.mts?re={{timestamp}}" data-user-id="{{userId}}" data-user-access-level="{{accessLevel}}"></script>
+<script type="module" src="/src/canvas.mts"></script>
 
-<h2>{{canvasName}}</h2>
+<h2><span id="canvas-title-lock" class="hidden">🔒</span>{{canvasName}}</h2>
 
-<div id="canvas-container" style="display: flex; gap: 30px" >
+<div id="canvas-container" data-user-id="{{userId}}" data-user-access-level="{{accessLevel}}" style="display: flex; gap: 30px" >
 </div>
-
-
-<!-- <div style="height: 50px; display: block"></div>
-<div>
-  <label for="logTextArea">Event Log</label>
-  <textarea id="logTextArea" style="width: 100%" >
-  </textarea>
-  <button type="button" id="logReplayButton">Replay</button>
-  <button type="button" id="logOptimizeButton">Optimize</button>
-  <button type="button" id="logClearButton">Clear</button>
-  <br/>
-  <p>Optimize löscht alle gelöschten Shapes und zu diesen gehörenden Events</p>
-  <p>ACHTUNG: Bringt natürlich das Z Index ändern durcheinander. Für Snapshot + Z Index muss ich noch eine Lösung finden. ggf. Z Index Änderungen anders darstellen</p>
-</div> -->

@@ -1,4 +1,4 @@
-import {CanvasShape, Point2D, SelectionOptions, Tool} from "./types.mjs"
+import {CanvasShape, MyMouseEvent, Point2D, SelectionOptions, Tool} from "./types.mjs"
 import {convertShape} from "./CanvasShapes.mjs"
 import {ArrayShapeStore} from "./ShapeStore.mjs"
 import {ShapeHelper} from "./Utils/ShapeHelper.mjs";
@@ -19,8 +19,8 @@ export class SelectionTool implements Tool {
     protected currentEventOrigin = EventHelper.generateOrigin()
 
     protected shapeStore = new ArrayShapeStore<CanvasShape>()
-    protected clientSelectedShapes: string[] = []
-    protected selectedShapes: string[] = []
+    protected clientSelectedShapes: string[] = [] // shapes selected by this client
+    protected selectedShapes: string[] = [] // shapes selected by other clients
     protected lastCycleSelectedShape?: CanvasShape = undefined
     protected mouseMoveStart: Point2D = { x: 0, y: 0 }
     protected performingDrag = false
@@ -30,11 +30,22 @@ export class SelectionTool implements Tool {
         this.attachShapeEventListeners()
     }
 
+    selectAll(): void {
+        const shapes = this.shapeStore.getShapes()
+            .filter(shape => shape.toShape().temporary === false) // do not select temporary shapes
+            .filter(shape => this.selectedShapes.findIndex(id => id === shape.id) === -1) // do not select shapes slected by other clients
+            
+        this.clientSelectedShapes = shapes.map(shape => shape.id)
+        for (const shape of shapes) {
+            EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, this.selectionOptions)
+        }
+    }
+
     handleMouseDown(x: number, y: number): void {
         this.mouseMoveStart = { x, y }
     }
 
-    handleMouseMove(x: number, y: number, e: MouseEvent): void {
+    handleMouseMove(x: number, y: number, e: MyMouseEvent): void {
         // mose drag logic:
         // - if mouse is moved more than 5 pixels, consider it a drag
         //  - this prevents accidental drags and allows for a better determination when dragging starts
@@ -46,8 +57,7 @@ export class SelectionTool implements Tool {
             this.accumulativeDragDistance = { x: 0, y: 0 }
             return
         }
-        const mousePos = { x, y }
-        const distance: Point2D = Point2D.subtract(mousePos, this.mouseMoveStart)
+        const distance: Point2D = Point2D.subtract({ x, y }, this.mouseMoveStart)
 
         // if the mouse was moved more than 5 pixels, consider it a drag
         // once dragging mode is entered, the selected shapes will be moved
@@ -55,7 +65,10 @@ export class SelectionTool implements Tool {
             this.moveSelectedShapes(distance)
         } else {
             this.accumulativeDragDistance = Point2D.add(this.accumulativeDragDistance, distance)
-            this.performingDrag = Point2D.magnitude(this.accumulativeDragDistance) > 5
+            this.performingDrag = Point2D.magnitude(this.accumulativeDragDistance) > 7
+            if (this.performingDrag) {
+                this.moveSelectedShapes(this.accumulativeDragDistance)
+            }
         }
 
         this.mouseMoveStart = { x, y }
@@ -64,7 +77,7 @@ export class SelectionTool implements Tool {
     /**
      * Perform selection logic on mouse up
      */
-    handleMouseUp(x: number, y: number, e: MouseEvent): void {
+    handleMouseUp(x: number, y: number, e: MyMouseEvent): void {
         // possible selections:
         // - single click -> select shape unselect all others
         // - ctrl + click -> toggle selection and keep other selections
@@ -262,6 +275,7 @@ export class SelectionTool implements Tool {
         SHAPE_EVENT_BUS.addEventListener('ShapeRemoved', (event) => {
             this.shapeStore.removeShape(event.shapeId)
             this.selectedShapes = this.selectedShapes.filter(id => id !== event.shapeId)
+            this.clientSelectedShapes = this.clientSelectedShapes.filter(id => id !== event.shapeId)
             if (this.lastCycleSelectedShape?.id === event.shapeId) {
                 this.lastCycleSelectedShape = undefined
             }

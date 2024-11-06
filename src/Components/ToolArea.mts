@@ -6,6 +6,7 @@ export class ToolArea extends HTMLElement {
     readonly shadowDOM: ShadowRoot
     protected selectedTool?: ShapeFactory = undefined
     protected tools: ShapeFactory[] = []
+    protected enabled: boolean = true
 
     constructor() {
         super()
@@ -26,14 +27,30 @@ export class ToolArea extends HTMLElement {
             buttonElements.push(domSelElement)
 
             domSelElement.addEventListener("click", () => {
-                // remove class from all elements
-                buttonElements.forEach((element) => element.classList.remove("marked"))
-                // add class to the one that is selected currently
-                domSelElement.classList.add("marked")
+                if (this.enabled) {
+                    // remove class from all elements
+                    buttonElements.forEach((element) => element.classList.remove("marked"))
+                    // add class to the one that is selected currently
+                    domSelElement.classList.add("marked")
 
-                this.selectedTool = tool
+                    this.selectedTool = tool
+                }
             })
         })
+    }
+
+    disableToolSelection() {
+        this.enabled = false
+        this.selectedTool = undefined
+        this.shadowDOM.querySelectorAll("li").forEach((element) => { 
+            element.classList.add("disabled")
+            element.classList.remove("marked")
+        })
+    }
+
+    enableToolSelection() {
+        this.shadowDOM.querySelectorAll("li").forEach((element) => element.classList.remove("disabled"))
+        this.enabled = true
     }
 
     getSelectedTool(): ShapeFactory | undefined {
@@ -60,4 +77,4 @@ export class ToolArea extends HTMLElement {
     }
 }
 
-customElements.define('hs-tool-area', ToolArea)
+if (!customElements.get('hs-tool-area')) customElements.define('hs-tool-area', ToolArea)

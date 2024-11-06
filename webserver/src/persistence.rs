@@ -6,6 +6,10 @@ use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 
+/// Simple File based Event persistence
+/// Can either turn into a standalone actor holding a file handle
+/// or into an actor that can be used in the whole system
+
 pub struct EventLogPersistenceActorJson {
     // this could use tokio::fs::File, but synchronous file access is easier :)
     file: std::fs::File,
@@ -116,8 +120,6 @@ where
         // in a production environment this would need to be handled more gracefully and thoughtfully
         serde_json::to_writer(&self.file, &msg.0).unwrap();
         self.file.write_all(&[b'\n'])?;
-
-        println!("Wrote event to file");
         Ok(())
     }
 }

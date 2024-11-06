@@ -5,6 +5,11 @@ use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Event Store to persist user events
+/// Uses underlying persistence actor to save events
+/// This is a simple "database" that is fully loaded in memory once created
+/// This can be replaced by a real database later. This Store would then just be a gateway to the database
+
 pub const USER_ID_ALPHABET: [char; 16] = [
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
@@ -29,6 +34,7 @@ pub struct User {
     pub password_hash: String,
 }
 
+/// Simpler User can be used in the Application to "hide" the password hash
 pub struct SimpleUser {
     pub id: UserId,
     pub username: String,
@@ -45,6 +51,8 @@ impl From<User> for SimpleUser {
     }
 }
 
+/// User Store Actor
+/// Handles messages for registration and user lookup
 pub struct UserStore {
     /// Address to the persistence actor, used to save and read events
     event_persistence_recipient: Recipient<PersistEventMessage<UserStoreEvents>>,
@@ -103,6 +111,7 @@ impl Actor for UserStore {
     type Context = Context<Self>;
 }
 
+/// Events that will be used to persist the internal state of the UserStore
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[allow(clippy::enum_variant_names)] // Canvas Application uses this naming convention
@@ -204,8 +213,7 @@ impl Handler<RegisterUserMessage> for UserStore {
             user: user.clone(),
         };
 
-        // change internal state befor persisting the event
-        // I am not 100% sure if AtomicResponse realy does not allow other messages to be handled before the persistance is done
+        // change internal state before persisting the event
         // this is done to prevent any race conditions creating multiple users with the same id / username / email
         self.users_username_lookup
             .insert(user.username.clone(), id.clone());

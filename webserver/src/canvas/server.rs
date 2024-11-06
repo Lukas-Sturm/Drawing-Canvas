@@ -21,6 +21,11 @@ use crate::{
     userstore::UserId,
 };
 
+/// Main Server to handle Canvas Events
+/// Loads a canvas from the store and keeps track of all connected users
+/// Handles user permissions for Events
+/// Is abel to recover from a crash and fixes canvas state on load
+
 pub type Msg = String;
 
 #[derive(Debug)]
@@ -63,18 +68,24 @@ enum Command {
 type WSSessionId = String;
 
 struct CanvasInstance {
+    /// tracks connected users
     users: HashMap<UserId, HashMap<WSSessionId, mpsc::UnboundedSender<Msg>>>,
+    /// tracks selected shapes for each user
     selected_shapes: HashMap<WSSessionId, HashSet<String>>,
 
     persistence: EventLogPersistenceStandaloneJson<CanvasEvents>,
+
+    /// log of all events that happened on the canvas
     event_log: Vec<CanvasEvents>,
 
+    /// inner canvas state
     inner: Canvas,
 
     /// tracks temporary shapes that should not be persisted
     temp_shapes: HashSet<String>,
 }
 
+/// Canvas Server handles all canvas events for all canvases
 pub struct CanvasSocketServer {
     canvases: HashMap<CanvasId, CanvasInstance>,
 
@@ -88,6 +99,7 @@ impl CanvasSocketServer {
     pub fn new(
         get_canvas_recipient: Arc<Recipient<GetCanvasMessage>>,
     ) -> (Self, CanvasSocketServerHandle) {
+        // channel to communicate with ServerHandle
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
         (
@@ -138,8 +150,8 @@ impl CanvasSocketServer {
                 canvas
                     .users
                     .iter()
-                    .flat_map(|(_, sockets)| sockets.iter() )
-                    .for_each(move | (session_id, tx)| {
+                    .flat_map(|(_, sockets)| sockets.iter())
+                    .for_each(move |(session_id, tx)| {
                         if session_id == &skip_session_id {
                             return;
                         }
@@ -200,12 +212,18 @@ impl CanvasSocketServer {
                     user_sessions
                 });
 
+            let access_level = canvas
+                .inner
+                .users
+                .get(&user_id)
+                .cloned()
+                .unwrap_or(AccessLevel::Read);
             let event = CanvasEvents::UserJoined {
                 userId: user_id.clone(),
                 username,
                 sessionId: session_id.clone(),
                 timestamp: chrono::Utc::now().timestamp() as u64,
-                accessLevel: AccessLevel::Owner,
+                accessLevel: access_level,
             };
 
             Self::persist_event(canvas, &event);
@@ -214,10 +232,14 @@ impl CanvasSocketServer {
         }
     }
 
+    ///
+    /// Loads canvas from persistence and applies all events
+    /// Cleans up dangling state from previous sessions
+    ///
     async fn load_canvas(&mut self, canvas_id: &str) -> Result<(), String> {
         let persistence = EventLogPersistenceJson::new(format!("./{}.jsonl", canvas_id).as_str())
             .map_err(|e| e.to_string())?;
-        let (event_log, persistence) = persistence
+        let (mut event_log, persistence) = persistence
             .into_standalone::<CanvasEvents>()
             .map_err(|e| e.to_string())?;
 
@@ -231,21 +253,84 @@ impl CanvasSocketServer {
             .map(Ok)
             .unwrap_or(Err("Canvas not found".to_string()))?;
 
-        self.canvases.insert(
-            canvas_id.to_string(),
-            CanvasInstance {
-                selected_shapes: HashMap::new(),
-                temp_shapes: HashSet::new(),
-                inner: canvas,
-                users: HashMap::with_capacity(1),
-                event_log,
-                persistence,
-            },
-        );
+        let cleanup_events = Self::extract_cleanup_events(&mut event_log);
+
+        let mut canvas = CanvasInstance {
+            selected_shapes: HashMap::new(),
+            temp_shapes: HashSet::new(),
+            inner: canvas,
+            users: HashMap::with_capacity(1),
+            event_log,
+            persistence,
+        };
+
+        cleanup_events.into_iter().for_each(|event| {
+            Self::persist_event(&mut canvas, &event);
+            canvas.event_log.push(event);
+        });
+
+        self.canvases.insert(canvas_id.to_string(), canvas);
 
         Ok(())
     }
 
+    ///
+    /// Returns events to cancel unwanted dangling state from previous sessions, like selected shapes and connected users
+    /// 
+    fn extract_cleanup_events(event_log: &mut [CanvasEvents]) -> Vec<CanvasEvents> {
+        let mut selected_shapes: HashMap<String, String> = HashMap::new();
+        let mut joined_users: HashMap<WSSessionId, UserId> = HashMap::new();
+
+        for event in event_log.iter() {
+            match event {
+                CanvasEvents::ShapeSelected {
+                    origin, shapeId, ..
+                } => {
+                    selected_shapes.insert(shapeId.clone(), origin.clone());
+                }
+
+                CanvasEvents::ShapeDeselected { shapeId, .. }
+                | CanvasEvents::ShapeRemoved { shapeId, .. } => {
+                    selected_shapes.remove(shapeId);
+                }
+
+                CanvasEvents::UserJoined {
+                    userId, sessionId, ..
+                } => {
+                    joined_users.insert(sessionId.clone(), userId.clone());
+                }
+
+                CanvasEvents::UserLeft { sessionId, .. } => {
+                    joined_users.remove(sessionId);
+                }
+
+                _ => (),
+            }
+        }
+
+        let mut cleanup_events = Vec::new();
+        for (shape_id, origin) in selected_shapes.into_iter() {
+            cleanup_events.push(CanvasEvents::ShapeDeselected {
+                origin,
+                shapeId: shape_id,
+                timestamp: chrono::Utc::now().timestamp() as u64,
+            });
+        }
+
+        for (session_id, user_id) in joined_users.into_iter() {
+            cleanup_events.push(CanvasEvents::UserLeft {
+                sessionId: session_id,
+                userId: user_id,
+                timestamp: chrono::Utc::now().timestamp() as u64,
+            });
+        }
+
+        cleanup_events
+    }
+
+    ///
+    /// Creates events to deselect all selected shapes once a user disconnects
+    /// 
     fn unselect_selected_shapes(canvas: &mut CanvasInstance, session_id: &WSSessionId) {
         let mut events = Vec::new();
         if let Some(selected_shapes) = canvas.selected_shapes.get_mut(session_id) {
@@ -267,11 +352,11 @@ impl CanvasSocketServer {
     fn disconnect(&mut self, canvas_id: CanvasId, user_id: UserId, session_id: WSSessionId) {
         println!("{user_id}-{session_id} disconnected from {canvas_id}");
 
-        if let Some(users_left) = self.canvases.get_mut(&canvas_id).map(| canvas | {
+        if let Some(users_left) = self.canvases.get_mut(&canvas_id).map(|canvas| {
             Self::unselect_selected_shapes(canvas, &session_id);
 
             // delete user and session
-            if let Some(session_count) = canvas.users.get_mut(&user_id).map(| sessions | {
+            if let Some(session_count) = canvas.users.get_mut(&user_id).map(|sessions| {
                 sessions.remove(&session_id);
                 sessions.len()
             }) {
@@ -279,7 +364,7 @@ impl CanvasSocketServer {
                     canvas.users.remove(&user_id);
                 }
             }
-            
+
             let event = CanvasEvents::UserLeft {
                 userId: user_id.clone(),
                 sessionId: session_id.clone(),
@@ -323,7 +408,12 @@ impl CanvasSocketServer {
         }
     }
 
-    fn update_canvas_state(&mut self, canvas_id: CanvasId, state: CanvasState, initiator_id: UserId) {
+    fn update_canvas_state(
+        &mut self,
+        canvas_id: CanvasId,
+        state: CanvasState,
+        initiator_id: UserId,
+    ) {
         if let Some(canvas) = self.canvases.get_mut(&canvas_id) {
             canvas.inner.state = state.clone();
 
@@ -341,8 +431,12 @@ impl CanvasSocketServer {
     ///
     /// Updates event log and stores event
     /// Keeps track of selected shapes
-    /// 
-    fn track_selected_shapes(canvas: &mut CanvasInstance, session_id: &WSSessionId, event: &CanvasEvents) {
+    ///
+    fn track_selected_shapes(
+        canvas: &mut CanvasInstance,
+        session_id: &WSSessionId,
+        event: &CanvasEvents,
+    ) {
         // store selected shapes
         match event {
             CanvasEvents::ShapeSelected { shapeId, .. } => {
@@ -353,49 +447,67 @@ impl CanvasSocketServer {
                     .insert(shapeId.clone());
             }
 
-            CanvasEvents::ShapeDeselected { shapeId, .. } => {
+            CanvasEvents::ShapeDeselected { shapeId, .. }
+            | CanvasEvents::ShapeRemoved { shapeId, .. } => {
                 canvas
                     .selected_shapes
                     .entry(session_id.clone())
-                    .or_default()// should never be reached
+                    .or_default() // should never be reached
                     .remove(shapeId);
             }
 
-            _ => ()
+            _ => (),
         }
     }
 
+    ///
     /// check if event is a system event
     /// system events will only be send by the server
+    ///
     fn message_allowed(event: &CanvasEvents) -> bool {
-        !matches!(event,
-            CanvasEvents::UserJoined { .. } | 
-            CanvasEvents::UserLeft { .. } | 
-            CanvasEvents::UserAccessLevelChanged { .. } | 
-            CanvasEvents::CanvasStateChanged { .. }
+        !matches!(
+            event,
+            CanvasEvents::UserJoined { .. }
+                | CanvasEvents::UserLeft { .. }
+                | CanvasEvents::UserAccessLevelChanged { .. }
+                | CanvasEvents::CanvasStateChanged { .. }
         )
     }
 
+    ///
+    /// Validates if user has the permission to send the event
+    /// 
     fn validate_permissions(canvas: &CanvasInstance, user_id: &UserId) -> bool {
-        canvas.inner.users.get(user_id).map_or(false, | access_level | {
-            match (access_level, &canvas.inner.state) {
-                (AccessLevel::Owner, _) => true,
-                (AccessLevel::Moderate, _) => true,
-                (AccessLevel::Voice, _) => true,
-                (AccessLevel::Write, CanvasState::Active) => true,  // Write only in active state
-                (_, _) => false,                                    // anything else can't write
-            }
-        })
+        canvas
+            .inner
+            .users
+            .get(user_id)
+            .map_or(false, |access_level| {
+                match (access_level, &canvas.inner.state) {
+                    (AccessLevel::Owner, _) => true,
+                    (AccessLevel::Moderate, _) => true,
+                    (AccessLevel::Voice, _) => true,
+                    (AccessLevel::Write, CanvasState::Active) => true, // Write only in active state
+                    (_, _) => false,                                   // anything else can't write
+                }
+            })
     }
 
-    fn handle_message(&mut self, canvas_id: CanvasId, user_id: UserId, session_id: WSSessionId, event: CanvasEvents) {
+    fn handle_message(
+        &mut self,
+        canvas_id: CanvasId,
+        user_id: UserId,
+        session_id: WSSessionId,
+        event: CanvasEvents,
+    ) {
         if Self::message_allowed(&event) {
             if let Some(canvas) = self.canvases.get_mut(&canvas_id) {
                 if Self::validate_permissions(canvas, &user_id) {
-                    Self::track_selected_shapes(canvas, &session_id, &event);                        
+                    Self::track_selected_shapes(canvas, &session_id, &event);
                     Self::persist_event(canvas, &event);
                     Self::broadcast_event(canvas, Some(session_id), event);
                 }
+                // TODO: signal user that he has no permission
             }
         } else {
             println!("User {user_id} tried to send system message");
@@ -432,7 +544,11 @@ impl CanvasSocketServer {
                     self.update_user_access_level(canvas_id, user_id, access_level);
                 }
 
-                Command::UpdateCanvasState { canvas_id, state, initiator_id } => {
+                Command::UpdateCanvasState {
+                    canvas_id,
+                    state,
+                    initiator_id,
+                } => {
                     self.update_canvas_state(canvas_id, state, initiator_id);
                 }
 
@@ -487,10 +603,19 @@ impl CanvasSocketServerHandle {
             .unwrap();
     }
 
-    pub fn update_canvas_state(&self, canvas_id: CanvasId, state: CanvasState, initiator_id: UserId) {
+    pub fn update_canvas_state(
+        &self,
+        canvas_id: CanvasId,
+        state: CanvasState,
+        initiator_id: UserId,
+    ) {
         // unwrap: chat server should not have been dropped
         self.cmd_tx
-            .send(Command::UpdateCanvasState { canvas_id, state, initiator_id })
+            .send(Command::UpdateCanvasState {
+                canvas_id,
+                state,
+                initiator_id,
+            })
             .unwrap();
     }
 
@@ -511,7 +636,13 @@ impl CanvasSocketServerHandle {
     }
 
     /// Broadcast message to current room.
-    pub async fn broadcast_event(&self, canvas_id: CanvasId, user_id: UserId, session_id: WSSessionId, msg: impl Into<Msg>) {
+    pub async fn broadcast_event(
+        &self,
+        canvas_id: CanvasId,
+        user_id: UserId,
+        session_id: WSSessionId,
+        msg: impl Into<Msg>,
+    ) {
         let (res_tx, res_rx) = oneshot::channel();
 
         // unwrap: chat server should not have been dropped

@@ -2,17 +2,20 @@ use std::{
     pin::pin,
     time::{Duration, Instant},
 };
-
 use actix_ws::AggregatedMessage;
 use futures_util::{
     future::{select, Either},
     StreamExt as _,
 };
 use tokio::{sync::mpsc, time::interval};
-
 use crate::{authentication::JWTUser, canvas::server::CanvasSocketServerHandle};
-
 use super::store::CanvasId;
+
+/// This is the main loop for each WebSocket connection.
+/// It communicates with the main WebsocketCanvasServer using channels.
+/// This is heavily inspired by the actix-websocket chat example.
+/// Uses ping/pong mechanism to detect broken or dangling connections.
+/// Also handles the initial registration of the session.
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -72,10 +75,18 @@ pub async fn start_canvas_websocket_connection(
                     if let Some(client_session_id) = &client_session_id {
                         // println!("Received message: {user} in {canvas_id}: {msg}");
                         let msg = text.trim();
-                        chat_server.broadcast_event(canvas_id.clone(), user.id.clone(), client_session_id.clone(), msg).await;
+                        chat_server
+                            .broadcast_event(
+                                canvas_id.clone(),
+                                user.id.clone(),
+                                client_session_id.clone(),
+                                msg,
+                            )
+                            .await;
                     } else {
                         let message = serde_json::from_str::<RegisterSession>(&text);
-                        client_session_id = message.map(|message| Some(message.session)).unwrap_or(None);
+                        client_session_id =
+                            message.map(|message| Some(message.session)).unwrap_or(None);
                         if let Some(origin) = &client_session_id {
                             chat_server
                                 .connect(

@@ -1,6 +1,8 @@
 use actix_files::NamedFile;
 use actix_web::{http::header, HttpRequest, HttpResponse, HttpResponseBuilder, Result};
 
+/// Module to handle rendering
+
 // in dev mode vite handles module loading on the fly, requests will include /src/ files
 #[cfg(feature = "dev")]
 pub static INDEX_FILE: &str = "../index.html";
@@ -14,15 +16,10 @@ pub static TEMPLATES_DIR: &str = "../.templates/";
 pub static TEMPLATES_DIR: &str = "../dist/.templates/";
 
 pub async fn serve_index(_: &HttpRequest) -> Result<NamedFile> {
-    // println!("Serving index from: {}", INDEX_FILE);
     Ok(NamedFile::open_async(INDEX_FILE).await?)
 }
 
 pub async fn serve_template(template: &str, _: &HttpRequest) -> Result<NamedFile> {
-    // println!(
-    //     "Serving template from: {}",
-    //     TEMPLATES_DIR.to_owned() + template
-    // );
     Ok(NamedFile::open_async(TEMPLATES_DIR.to_owned() + template).await?)
 }
 

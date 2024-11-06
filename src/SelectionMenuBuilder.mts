@@ -3,6 +3,7 @@ import {ButtonMenuItem, Menu, MenuItem, RadioOptionMenuItem, SeparatorMenuItem} 
 
 import {EventHelper} from "./ShapeEvents.mjs";
 import {SHAPE_EVENT_BUS} from "./EventBus.mjs";
+import { SelectionTool } from "./SelectionTool.mts";
 
 // Simpler Shape type
 type SelectionMenuShape = {
@@ -16,12 +17,14 @@ type SelectionMenuShape = {
  */
 export class SelectionMenuBuilder {
     protected allShapes: Map<string, SelectionMenuShape> = new Map()
-    protected selectedShapes: Set<string> = new Set()
+    protected clientSelectedShapes: Set<string> = new Set()
     protected selectAllSettings = { color: 'red' }
 
     protected currentEventOrigin = EventHelper.generateOrigin()
 
-    constructor() {
+    constructor(
+        protected selectionTool: SelectionTool
+    ) {
         this.registerShapeEventListeners()
     }
 
@@ -31,15 +34,15 @@ export class SelectionMenuBuilder {
     createContextMenuFactory(): ContextMenuItemFactory {
         const selectAllButton = new ButtonMenuItem('Alle Shapes auswählen', (menu) => {
             // event listener will mark them as selected automatically
-            this.allShapes.forEach((shape) => EventHelper.sendShapeSelectedEvent(this.currentEventOrigin, shape.id, this.selectAllSettings) )
+            this.selectionTool.selectAll()
             menu.hide()
         })
 
         return () => {
-            if (this.selectedShapes.size === 0) return [selectAllButton] // add a select all button for convenience
+            if (this.clientSelectedShapes.size === 0) return [selectAllButton] // add a select all button for convenience
 
-            const plurals = this.selectedShapes.size > 1 ? 's' : ''
-            const countString = this.selectedShapes.size > 1 ? ` (${this.selectedShapes.size}) ` : ''
+            const plurals = this.clientSelectedShapes.size > 1 ? 's' : ''
+            const countString = this.clientSelectedShapes.size > 1 ? ` (${this.clientSelectedShapes.size}) ` : ''
 
             const zOrderMenu = this.buildZOrderMenu()
             if (zOrderMenu.length > 0) {
@@ -49,7 +52,7 @@ export class SelectionMenuBuilder {
 
             const menuItems: MenuItem[] = [
                 new ButtonMenuItem(`${countString}Shape${plurals} löschen!`, (menu) => {
-                    this.selectedShapes.forEach(shape => EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, shape))
+                    this.clientSelectedShapes.forEach(shape => EventHelper.sendShapeRemovedEvent(this.currentEventOrigin, shape))
                     menu.hide()
                 }),
                 new SeparatorMenuItem(),
@@ -65,10 +68,10 @@ export class SelectionMenuBuilder {
      * @protected
      */
     protected buildZOrderMenu(): MenuItem[] {
-        if (this.selectedShapes.size === 1) {
+        if (this.clientSelectedShapes.size === 1) {
             // add z index manipulation
 
-            const firstShapeIter = this.selectedShapes.values().next()
+            const firstShapeIter = this.clientSelectedShapes.values().next()
             if (!firstShapeIter.done) {
                 const shapeId = firstShapeIter.value
 
@@ -100,8 +103,8 @@ export class SelectionMenuBuilder {
      * @protected
      */
     protected buildColorRadioMenu(): MenuItem[] {
-        const plurals = this.selectedShapes.size > 1 ? 's' : ''
-        const countString = this.selectedShapes.size > 1 ? ` (${this.selectedShapes.size}) ` : ''
+        const plurals = this.clientSelectedShapes.size > 1 ? 's' : ''
+        const countString = this.clientSelectedShapes.size > 1 ? ` (${this.clientSelectedShapes.size}) ` : ''
 
         const baseColorOptions = {
             '#EE4A2C': 'Rot',
@@ -119,7 +122,7 @@ export class SelectionMenuBuilder {
             `Rahmenfarbe`,
             borderColorOptions,
             (value, _) => {
-                this.selectedShapes.forEach(shapeId => {
+                this.clientSelectedShapes.forEach(shapeId => {
                     const shape = this.allShapes.get(shapeId)
                     if (!shape) return
                     EventHelper.sendShapeChangedEvent(this.currentEventOrigin, {
@@ -136,7 +139,7 @@ export class SelectionMenuBuilder {
             `Füllfarbe`,
             fillColorOptions,
             (value, _) => {
-                this.selectedShapes.forEach(shapeId => {
+                this.clientSelectedShapes.forEach(shapeId => {
                     const shape = this.allShapes.get(shapeId)
                     if (!shape) return
                     EventHelper.sendShapeChangedEvent(this.currentEventOrigin, {
@@ -150,7 +153,7 @@ export class SelectionMenuBuilder {
 
         // Check if all colors are the same
         // set them as selected if they are
-        const shapes = Array.from(this.selectedShapes.values())
+        const shapes = Array.from(this.clientSelectedShapes.values())
                 .map((shapeId) => this.allShapes.get(shapeId))
                 .filter((shape): shape is SelectionMenuShape => !!shape)
 
@@ -175,18 +178,18 @@ export class SelectionMenuBuilder {
         SHAPE_EVENT_BUS.addEventListener('ShapeSelected', (event) => {
             // only track shapes from the current client session
             if (event.origin !== this.currentEventOrigin) return
-            this.selectedShapes.add(event.shapeId)
+            this.clientSelectedShapes.add(event.shapeId)
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeRemoved', (event) => {
-            this.selectedShapes.delete(event.shapeId)
+            this.clientSelectedShapes.delete(event.shapeId)
             this.allShapes.delete(event.shapeId)
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeDeselected', (event) => {
             // only track shapes from the current client session
             if (event.origin !== this.currentEventOrigin) return
-            this.selectedShapes.delete(event.shapeId)
+            this.clientSelectedShapes.delete(event.shapeId)
         })
 
         SHAPE_EVENT_BUS.addEventListener('ShapeAdded', (event) => {

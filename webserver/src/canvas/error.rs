@@ -7,13 +7,13 @@ use derive_more::{Display, Error};
 
 #[derive(Debug, Display, Error)]
 pub enum CanvasStoreError {
-    #[display("Canvas not found")]
+    #[display("Canvas nicht gefunden")]
     CanvasNotFound,
-    #[display("User not found")]
+    // #[display("User not found")]
     // UserNotFound,
-    // #[display("Access denied: {}", _0)]
+    #[display("Zugriff verweigert: {}", _0)]
     AccessDenied(#[error(ignore)] String),
-    #[display("Failed to persist data")]
+    #[display("Daten konnten nicht gespeichert werden")]
     PersistenceFailed,
 }
 

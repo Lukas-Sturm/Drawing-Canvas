@@ -85,8 +85,10 @@ export class CanvasLine extends AbstractShape<Line> implements CanvasShape {
         ctx.beginPath()
         ctx.strokeStyle = this.shape.borderColor
         ctx.fillStyle = this.shape.fillColor
+        ctx.lineWidth = 2
         ctx.moveTo(this.shape.from.x, this.shape.from.y)
         ctx.lineTo(this.shape.to.x, this.shape.to.y)
+
         ctx.stroke()
     }
 
@@ -118,6 +120,7 @@ class CanvasCircle extends AbstractShape<Circle> implements CanvasShape {
         ctx.beginPath()
         ctx.strokeStyle = this.shape.borderColor
         ctx.fillStyle = this.shape.fillColor
+        ctx.lineWidth = 1
         ctx.arc(this.shape.center.x,this.shape.center.y,this.shape.radius,0,2*Math.PI)
         ctx.fill()
         ctx.stroke()
@@ -155,6 +158,7 @@ export class CanvasRectangle extends AbstractShape<Rectangle> implements CanvasS
         ctx.beginPath()
         ctx.strokeStyle = this.shape.borderColor
         ctx.fillStyle = this.shape.fillColor
+        ctx.lineWidth = 1
         ctx.strokeRect(this.from.x, this.from.y,
             this.to.x - this.from.x, this.to.y - this.from.y)
         ctx.fillRect(this.from.x, this.from.y,
@@ -207,6 +211,7 @@ class CanvasTriangle extends AbstractShape<Triangle> implements CanvasShape {
         ctx.beginPath()
         ctx.strokeStyle = this.shape.borderColor
         ctx.fillStyle = this.shape.fillColor
+        ctx.lineWidth = 1
         ctx.moveTo(this.shape.p1.x, this.shape.p1.y)
         ctx.lineTo(this.shape.p2.x, this.shape.p2.y)
         ctx.lineTo(this.shape.p3.x, this.shape.p3.y)

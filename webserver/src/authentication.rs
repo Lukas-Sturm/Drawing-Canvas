@@ -4,6 +4,7 @@ use crate::templates;
 use crate::user;
 use crate::userstore::GetUserMessage;
 use crate::userstore::SimpleUser;
+use crate::userstore::UserId;
 use actix::Recipient;
 use actix_web::body::BoxBody;
 use actix_web::body::EitherBody;
@@ -18,6 +19,17 @@ use futures_util::try_join;
 use futures_util::{FutureExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use std::future::{ready, Ready};
+
+/// Actix Middleware
+/// Used to authenticate users
+/// Checks if a JWT Token is present in the request
+/// validates the token and checks if the token is expired
+/// If the token is expired, it will check if the token is allowed to be refreshed
+/// > this uses a very simple refresh token system, which is not secure
+/// > this needs to be replaced by a proper refresh token system
+/// 
+/// ! JWT are not meant to store session data, but it is required by the exercise
+/// ! I used the JWT heavily. This means it takes 30 seconds for the state of the application to be updated
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JWTClaims {
@@ -46,6 +58,8 @@ impl From<JWTClaims> for JWTUser {
         }
     }
 }
+
+pub struct RegenerateJWTMarker;
 
 // pub struct RefreshClaims {
 //     /// User ID ? not sure if needed here
@@ -113,6 +127,44 @@ pub struct AuthenticationMiddleware<S> {
     service: S,
 }
 
+/// Helper to generate a JWT form a response and user_id
+/// Used to generate refreshed JWT Tokens
+async fn recreate_jwt_for_response<B>(
+    res: &ServiceResponse<B>,
+    user_id: UserId,
+) -> Result<String, Error> {
+    let canvas_store = res
+        .request()
+        .app_data::<web::Data<Recipient<GetUserClaimsMessage>>>();
+
+    let user_store = res
+        .request()
+        .app_data::<web::Data<Recipient<GetUserMessage>>>();
+
+    if let (Some(canvas_store), Some(user_store)) = (canvas_store, user_store) {
+        let (claims, user) = try_join!(
+            canvas_store.send(GetUserClaimsMessage {
+                user_id: user_id.clone(),
+            }),
+            user_store.send(GetUserMessage {
+                username_email: None,
+                user_id: Some(user_id),
+            })
+        )
+        .map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))?; // mailing error
+                                                                                   // TODO: consider logging alterting system, if this error occurs, something is very wrong
+
+        let user = user.ok_or(error::ErrorInternalServerError("Failed to refresh token"))?;
+        // TODO: consider logging alterting system, if this error occurs, something is very wrong
+
+        generate_jwt_token(user.into(), claims)
+            .map_err(|_| error::ErrorInternalServerError("Failed to refresh token"))
+        // TODO: consider logging alterting system, if this error occurs, something is wrong
+    } else {
+        Err(error::ErrorInternalServerError("Failed to refresh token"))
+    }
+}
+
 impl<S, B> Service<ServiceRequest> for AuthenticationMiddleware<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -147,7 +199,7 @@ where
 
                     if token.claims.exp < chrono::Utc::now().timestamp() as usize {
                         if token.claims.rfr == "refresh" {
-                            println!("Token expired, Refreshing allowed");
+                            // Token expired, Refreshing allowed
 
                             // Explanation: This calles the next middleware in the chain
                             // then receives the response. This is a future, we can then attach a future to be executed after the response is generated
@@ -156,67 +208,23 @@ where
                             self.service
                                 .call(req)
                                 .and_then(|mut res| async move {
-                                    let canvas_store = res
-                                        .request()
-                                        .app_data::<web::Data<Recipient<GetUserClaimsMessage>>>();
+                                    let refreshed_token =
+                                        recreate_jwt_for_response(&res, token.claims.uid).await?;
 
-                                    let user_store = res
-                                        .request()
-                                        .app_data::<web::Data<Recipient<GetUserMessage>>>();
-
-                                    if let (Some(canvas_store), Some(user_store)) =
-                                        (canvas_store, user_store)
-                                    {
-                                        let (claims, user) = try_join!(
-                                            canvas_store.send(GetUserClaimsMessage {
-                                                user_id: token.claims.uid.clone(),
-                                            }),
-                                            user_store.send(GetUserMessage {
-                                                username_email: None,
-                                                user_id: Some(token.claims.uid.clone()),
-                                            })
-                                        )
-                                        .map_err(|_| {
-                                            error::ErrorInternalServerError(
-                                                "Failed to refresh token",
-                                            )
-                                        })?; // mailing error
-                                             // TODO: consider logging alterting system, if this error occurs, something is very wrong
-
-                                        let user = user.ok_or(error::ErrorInternalServerError(
-                                            "Failed to refresh token",
-                                        ))?;
-                                        // TODO: consider logging alterting system, if this error occurs, something is very wrong
-
-                                        let refreshed_token =
-                                            generate_jwt_token(user.into(), claims).map_err(
-                                                |_| {
-                                                    error::ErrorInternalServerError(
-                                                        "Failed to refresh token",
-                                                    )
-                                                },
-                                            )?;
-                                        // TODO: consider logging alterting system, if this error occurs, something is wrong
-
-                                        res.response_mut().add_cookie(
-                                            &Cookie::build(user::AUTH_COOKIE_NAME, refreshed_token)
-                                                .same_site(actix_web::cookie::SameSite::Lax)
-                                                .http_only(true)
-                                                .path("/")
-                                                .finish(),
-                                        )?;
-                                        // TODO: consider logging alterting system, if this error occurs, something is wrong
-                                        Ok(res)
-                                    } else {
-                                        Err(error::ErrorInternalServerError(
-                                            "Failed to refresh token",
-                                        ))
-                                    }
+                                    res.response_mut().add_cookie(
+                                        &Cookie::build(user::AUTH_COOKIE_NAME, refreshed_token)
+                                            .same_site(actix_web::cookie::SameSite::Lax)
+                                            .http_only(true)
+                                            .path("/")
+                                            .finish(),
+                                    )?;
+                                    // TODO: consider logging alterting system, if this error occurs, something is wrong
+                                    Ok(res)
                                 })
                                 .map_ok(ServiceResponse::map_into_left_body::<BoxBody>)
                                 .boxed_local()
                         } else {
-                            println!("Token expired, Refresh not allowed");
+                            // Token expired, Refresh not allowed
 
                             Box::pin(async {
                                 let redirect_response =
@@ -225,10 +233,33 @@ where
                             })
                         }
                     } else {
-                        // TODO: consider recreating token if request requests it. skips waiting time for refreshtoken
+                        // JWT is valid and not expired
+
                         self.service
                             .call(req)
-                            .map_ok(ServiceResponse::map_into_left_body)
+                            .and_then(|mut res| async {
+                                // check if appliaction requests a jwt token refresh
+                                if res
+                                    .request()
+                                    .extensions()
+                                    .get::<RegenerateJWTMarker>()
+                                    .is_some()
+                                {
+                                    let refreshed_token =
+                                        recreate_jwt_for_response(&res, token.claims.uid).await?;
+
+                                    res.response_mut().add_cookie(
+                                        &Cookie::build(user::AUTH_COOKIE_NAME, refreshed_token)
+                                            .same_site(actix_web::cookie::SameSite::Lax)
+                                            .http_only(true)
+                                            .path("/")
+                                            .finish(),
+                                    )?;
+                                }
+
+                                Ok(res)
+                            })
+                            .map_ok(ServiceResponse::map_into_left_body::<BoxBody>)
                             .boxed_local()
                     }
                 }
@@ -242,7 +273,7 @@ where
                 }
             }
         } else {
-            println!("No auth cookie found");
+            // No JWT Token found
 
             Box::pin(async {
                 let redirect_response = templates::redirect_to_static("login", req.request());

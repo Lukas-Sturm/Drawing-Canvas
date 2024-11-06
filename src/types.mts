@@ -34,6 +34,8 @@ export type ContextMenuItemFactory = () => Array<MenuItem>
 
 export type ShapeId = string
 
+export type MyMouseEvent = { buttons: number, altKey: boolean, ctrlKey: boolean }
+
 export interface CanvasShape {
     readonly type: ShapeType
     readonly id: ShapeId
@@ -56,9 +58,9 @@ export interface SelectableShape {
 
 export interface Tool {
     label: string
-    handleMouseDown(x: number, y: number, e: MouseEvent): void
-    handleMouseUp(x: number, y: number, e: MouseEvent): void
-    handleMouseMove(x: number, y: number, e: MouseEvent): void
+    handleMouseDown(x: number, y: number, e: MyMouseEvent): void
+    handleMouseUp(x: number, y: number, e: MyMouseEvent): void
+    handleMouseMove(x: number, y: number, e: MyMouseEvent): void
 }
 
 export type ShapeFactory = Tool

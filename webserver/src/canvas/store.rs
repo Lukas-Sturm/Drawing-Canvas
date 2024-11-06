@@ -8,6 +8,9 @@ use crate::{
     userstore::UserId,
 };
 
+/// Event Store for Canvas events
+/// Same concept as userstore.rs
+
 use super::error::CanvasStoreError;
 
 /// Constants for the canvas id generation
@@ -169,8 +172,8 @@ impl CanvasStore {
 
                     user_id_lookup
                         .entry(user_id.clone())
-                        .and_modify(|e: &mut Vec<CanvasClaim>| { 
-                            e.iter().position(| c |  c == &claim).map(|i| e.swap_remove(i));
+                        .and_modify(|e: &mut Vec<CanvasClaim>| {
+                            e.iter().position(|c| c == &claim).map(|i| e.swap_remove(i));
                             e.push(claim.clone());
                         })
                         .or_insert(vec![claim.clone()]);
@@ -299,7 +302,6 @@ impl Handler<UpdateCanvasStateMessage> for CanvasStore {
     type Result = AtomicResponse<Self, Result<(), std::io::Error>>;
 
     fn handle(&mut self, msg: UpdateCanvasStateMessage, _: &mut Self::Context) -> Self::Result {
-
         let event = CanvasStoreEvents::CanvasStateChanged {
             timestamp: chrono::Utc::now().timestamp_millis() as u64,
             canvas_id: msg.canvas_id.clone(),
@@ -319,7 +321,7 @@ impl Handler<UpdateCanvasStateMessage> for CanvasStore {
                                 canvas.state = msg.state;
                             }
                             Ok(())
-                        },
+                        }
                         Ok(Err(_)) => Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
                             "Failed to persist event",
@@ -520,6 +522,12 @@ impl Handler<AddUserToCanvasMessage> for CanvasStore {
                                         claims.iter_mut().find(|claim| claim.c == msg.canvas_id)
                                     {
                                         claim.r = msg.access_level.clone();
+                                    } else {
+                                        claims.push(CanvasClaim {
+                                            n: canvas.name.clone(),
+                                            c: msg.canvas_id.clone(),
+                                            r: msg.access_level.clone(),
+                                        });
                                     }
                                 })
                                 .or_insert(vec![CanvasClaim {

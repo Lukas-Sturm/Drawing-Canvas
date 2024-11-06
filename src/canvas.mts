@@ -13,39 +13,41 @@ import './Components/ToolArea.mts'
 import { textToColor } from "./Utils/General.mts";
 import { EventHelper } from "./ShapeEvents.mts";
 
-// Something stops this module from beeing evaluated multiple times, even though the script is loaded multiple times, the below Event will only ever be handeled once
-// As far as I am aware, if the script is loaded and executed, it stays loaded and exectued, even if the script tag gets removed
-// So this does seem strange that the event is only handeled once
-// Maybe this has something to do with this beeing handled as a module
-// Only thing I found is that ofc using import only evaluates the imported module once
-// Does not matter if run from compiled js source or from vite loading individual modules
+// Problem: In dev mode vite will reload the modules automatically using a url query to force browser to reevaluate the script
+// In production mode the compiled js will only be loaded once and stay loaded even if canvas gets unloaded (navigate to home)
+// For this application this is fine, but nice to know how browsers handle js files
 
-// wont complain, but should be further investigated to understand the behavior
+// In dev it is easy to unload unused modules by unregistering all listeners. (atleast that should clear all references and let gc collect them)
 
 document.addEventListener('AJAXContentLoaded', () => {
+    SHAPE_EVENT_BUS.reset() // clear all previous listeners, free memory form previous canvas
 
-    SHAPE_EVENT_BUS.reset() // clear all previous listeners, free memory
-
-    recreateWebComponents()
+    if (!recreateWebComponents()) {
+        // not on canvas page.
+        // in dev mode module will be unloaded, but compiled minified js keeps this code loaded
+        // so navigating to home will also invoke this code
+        return
+    }
     requestAnimationFrame(wireCanvas)
 
     /**
      * Recreates the WebComponents, as they are not defined when the script is executed
      * Only needed when the content is loaded using AJAX
      */
-    function recreateWebComponents() {
+    function recreateWebComponents(): boolean {
         const canvasContainer = document.querySelector('#canvas-container')
-        if (!canvasContainer) throw new Error('Canvas Container not found')
+        if (!canvasContainer) return false
 
-        // this is a 'crude' hack, on initial load browser does not know the custom elements
+        // this is a hack, on initial load browser does not know the custom elements
         // only subsequent loads will have the custom elements defined
         // creating the elements in the script guarantees that the elements are defined
         // previous usage of clone and replace was even hackier
         canvasContainer.innerHTML = `
             <hs-tool-area id="mainToolArea"></hs-tool-area>
             <hs-drawing-canvas tool-area="mainToolArea"></hs-drawing-canvas>
-            <hs-multi-user-overlay></hs-multi-user-overlay>
+            <hs-multi-user-overlay tool-area="mainToolArea"></hs-multi-user-overlay>
         `
+        return true
     }
 
     /**
@@ -55,10 +57,10 @@ document.addEventListener('AJAXContentLoaded', () => {
         const canvas = document.querySelector('hs-drawing-canvas') as DrawingCanvas
         if (!canvas) throw new Error('Canvas not found')
 
-        const selectionMenuBuilder = new SelectionMenuBuilder()
-        
         const selectionTool = new SelectionTool()
         selectionTool.selectionOptions.color = textToColor(EventHelper.generateOrigin())
+
+        const selectionMenuBuilder = new SelectionMenuBuilder(selectionTool)
 
         const tools: Tool|ShapeFactory[] = [
             // Tools
@@ -87,4 +89,4 @@ document.addEventListener('AJAXContentLoaded', () => {
             })
         ], 1000)
     }
-}, { once: true })
+})

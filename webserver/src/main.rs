@@ -47,13 +47,13 @@ async fn main() -> std::io::Result<()> {
     // User event store setup, creates persistence actor and user store actor
     // persistence can be swapped out for a different implementation
     // user store can later be replaced by a database
+    // all actors are represented by their recipient to allow for easy swapping of implementations
     let user_event_log = EventLogPersistenceJson::new("user_eventlog.jsonl")
         .expect("Failed to create or load user event log");
     let (saved_events, user_event_log) = user_event_log
         .into_actor()
         .expect("Failed to read user event log");
     let user_event_persistor_recipient = user_event_log.start().recipient();
-    // use recipients to allow for easier swapping of implementations
     let user_store_addr = UserStore::new(user_event_persistor_recipient, saved_events).start();
 
     let register_user_receipient =
@@ -86,16 +86,16 @@ async fn main() -> std::io::Result<()> {
     );
     let get_canvas_recipient =
         web::Data::new(canvas_store_addr.clone().recipient::<GetCanvasMessage>());
-    let update_canvas_state_recipient =
-        web::Data::new(canvas_store_addr.clone().recipient::<UpdateCanvasStateMessage>());
+    let update_canvas_state_recipient = web::Data::new(
+        canvas_store_addr
+            .clone()
+            .recipient::<UpdateCanvasStateMessage>(),
+    );
 
-    // Argon Setup
+    // Argon Setup, inspired by OWASP Password Storage Cheat Sheet
     let argon_params = argon2::Params::new(19 * 1024, 3, 2, None).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::Other, "Failed to create argon2 params")
     })?;
-
-    // Logging
-    // env_logger::init_from_env(Env::default().default_filter_or("debug"));
 
     // Templating
     // Handlebar stores compiled templates, so it needs to be shared between threads
@@ -140,7 +140,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(get_user_claims_receipient.clone())
             .app_data(add_user_to_canvas_receipient.clone())
             .app_data(update_canvas_state_recipient.clone())
-            .app_data(web::Data::new(canvas_server_handle.clone())) // TODO: Example uses this, research how this differs from cloning web::Data, webdata uses arc internally, maybe .clone on Arc also clones the inner value ?
+            .app_data(web::Data::new(canvas_server_handle.clone()))
             .app_data(argon2)
             .configure(user::user_service)
             .configure(canvas::canvas_service)
@@ -149,9 +149,11 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::NormalizePath::trim())
             .service(actix_files::Files::new("/", "../dist").index_file("index.html"))
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 1234))?
     .workers(3)
     .run();
+
+    println!("Starting server at localhost:1234");
 
     try_join!(http_server, async move { canvas_server.await.unwrap() })?;
 
